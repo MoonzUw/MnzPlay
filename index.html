@@ -1079,23 +1079,20 @@ kbd {
         const saved = localStorage.getItem(LS_LANG);
         if (saved && I18N[saved]) return saved;
       } catch {}
-      const list = [
+      const candidates = [
         ...(Array.isArray(navigator.languages) ? navigator.languages : []),
         navigator.language || '',
         Intl.DateTimeFormat().resolvedOptions().locale || ''
-      ];
-      for (const raw of list) {
-        const l = String(raw || '').toLowerCase();
-        if (l.startsWith('pt')) return 'pt-BR';
-        if (l.startsWith('es')) return 'es';
-        if (l.startsWith('en')) return 'en';
-      }
+      ].map(x => String(x || '').toLowerCase());
       const tz = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').toLowerCase();
-      if (tz.includes('america/sao_paulo') || tz.includes('america/fortaleza') || tz.includes('america/recife') || tz.includes('america/belem') || tz.includes('america/manaus')) {
+      if (candidates.some(c => c.startsWith('pt')) || tz.includes('sao_paulo') || tz.includes('fortaleza') || tz.includes('recife') || tz.includes('belem') || tz.includes('manaus') || tz.includes('cuiaba') || tz.includes('porto_velho') || tz.includes('rio_branco')) {
         return 'pt-BR';
       }
-      if (tz.startsWith('america/') || tz.includes('europe/madrid')) {
+      if (candidates.some(c => c.startsWith('es')) || tz.includes('madrid') || tz.includes('mexico') || tz.includes('buenos_aires') || tz.includes('bogota') || tz.includes('lima') || tz.includes('santiago')) {
         return 'es';
+      }
+      if (candidates.some(c => c.startsWith('en'))) {
+        return 'en';
       }
       return 'pt-BR';
     })(),
@@ -1870,34 +1867,7 @@ kbd {
     renderProfilePhotoUI();
     const myName = getMyDisplayName();
     $('#steam-my-name').textContent = myName;
-    const steamAvEl = $('#steam-my-avatar');
-    if (steamAvEl) {
-      let ph = steamAvEl.querySelector('img.steam-photo-img');
-      let lt = steamAvEl.querySelector('span.steam-photo-letter');
-      if (!lt) {
-        lt = document.createElement('span');
-        lt.className = 'steam-photo-letter';
-        steamAvEl.insertBefore(lt, steamAvEl.firstChild);
-      }
-      lt.textContent = (myName[0] || 'M').toUpperCase();
-      if (state.profilePhoto) {
-        if (!ph) {
-          ph = document.createElement('img');
-          ph.className = 'steam-photo-img';
-          steamAvEl.insertBefore(ph, steamAvEl.firstChild);
-        }
-        ph.src = state.profilePhoto;
-        ph.alt = myName;
-        ph.hidden = false;
-        lt.hidden = true;
-      } else {
-        if (ph) {
-          ph.removeAttribute('src');
-          ph.hidden = true;
-        }
-        lt.hidden = false;
-      }
-    }
+    renderProfilePhotoUI();
     $('#steam-my-presence').value = state.presence;
 
     const myDot = $('#steam-my-dot');
