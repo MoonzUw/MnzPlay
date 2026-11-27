@@ -902,6 +902,7 @@ kbd {
   };
   const CLOUD_ON = Boolean(CONFIG.SUPABASE_URL.trim() && CONFIG.SUPABASE_ANON_KEY.trim());
   const DEV_NICKS = ['moonzuw'];
+  const ONLINE_WINDOW_MS = 3 * 60 * 1000;
 
   const GAMES = [
     { id: 'n64-001', titulo: 'Super Mario 64', sistema: 'N64', runner: 'ejs', core: 'n64', arquivo: 'roms/n64/super-mario-64.z64', romBase64: '', capa: 'https://coverproject.sfo2.cdn.digitaloceanspaces.com/nintendo_64/nintendo_64.supermario64_US.16220529131055272362_thumb.jpg', verso: '', ano: 1996, jogadores: '1 Jogador', sinopse: 'Explore o castelo da Princesa Peach, entre nos quadros e colete 120 estrelas em 3D.' },
@@ -1009,6 +1010,13 @@ kbd {
     return GAMES.find(g => norm(g.titulo) === norm(label) || norm(g.id) === norm(label)) || null;
   }
 
+  function isRecentlyActive(updatedAtStr, maxMs = ONLINE_WINDOW_MS) {
+    if (!updatedAtStr) return false;
+    const ts = new Date(updatedAtStr).getTime();
+    if (Number.isNaN(ts)) return false;
+    return (Date.now() - ts) <= maxMs;
+  }
+
   function cleanFriends(v) {
     if (!Array.isArray(v)) return [];
     const seen = new Set();
@@ -1019,21 +1027,23 @@ kbd {
         const key = norm(tag);
         if (tag && !seen.has(key)) {
           seen.add(key);
-          out.push({ tag, userId: '', playing: '', presence: 'online', updatedAt: '', addedAt: new Date().toISOString() });
+          out.push({ tag, userId: '', playing: '', presence: 'offline', updatedAt: '', addedAt: new Date().toISOString() });
         }
       } else if (item && typeof item === 'object' && typeof item.tag === 'string') {
         const tag = item.tag.trim().slice(0, 64);
         const key = norm(tag);
         if (tag && !seen.has(key)) {
           seen.add(key);
-          const playing = resolveGameLabel(item.playing || item.jogo_atual || item.currentGame || '');
-          const pres = ['online', 'away', 'offline'].includes(item.presence) ? item.presence : 'online';
+          const updatedAt = item.updatedAt || item.atualizado_em || '';
+          const active = isRecentlyActive(updatedAt);
+          const playing = active ? resolveGameLabel(item.playing || item.jogo_atual || item.currentGame || '') : '';
+          const pres = item.presence === 'offline' ? 'offline' : (active ? (item.presence === 'away' ? 'away' : 'online') : 'offline');
           out.push({
             tag,
             userId: item.userId || item.user_id || '',
             playing,
             presence: pres,
-            updatedAt: item.updatedAt || item.atualizado_em || '',
+            updatedAt,
             addedAt: item.addedAt || new Date().toISOString()
           });
         }
@@ -1280,7 +1290,7 @@ kbd {
    * CONTA, AMIGOS ESTILO STEAM, CHAT SALVO NA NUVEM E SUPABASE
    * ===================================================================== */
   const SYNC_LABELS = { local: 'Modo local', syncing: 'Sincronizando...', saved: 'Salvo na nuvem', error: 'Erro de sincronização' };
-  const cloud = { client: null, user: null, status: 'local', timer: null, ready: false, channel: null, msgChannel: null };
+  const cloud = { client: null, user: null, status: 'local', timer: null, heartbeatTimer: null, ready: false, channel: null, msgChannel: null };
 
   function hasActiveSession() {
     return Boolean(cloud.user || (state.localAccount && state.localAccount.active));
@@ -1407,6 +1417,16 @@ kbd {
     }
   }
 
+  function startHeartbeat() {
+    if (cloud.heartbeatTimer) clearInterval(cloud.heartbeatTimer);
+    cloud.heartbeatTimer = setInterval(() => {
+      if (cloud.client && cloud.user && state.presence !== 'offline') {
+        pushNow();
+      }
+      refreshFriendsPresence(true);
+    }, 60000);
+  }
+
   function mapCloudMessageToFriendKey(row) {
     const myId = cloud.user ? cloud.user.id : '';
     const fromMe = row.remetente_id === myId;
@@ -1502,16 +1522,23 @@ kbd {
           norm(r.nome_exibicao || '') === needle
         );
         if (match) {
-          const resolved = resolveGameLabel(match.jogo_atual || '');
-          const nextPres = f.presence === 'offline' ? 'offline' : 'online';
+          const activeNow = isRecentlyActive(match.atualizado_em);
+          const resolved = activeNow ? resolveGameLabel(match.jogo_atual || '') : '';
+          const nextPres = f.presence === 'offline' ? 'offline' : (activeNow ? 'online' : 'offline');
           if (resolved !== (f.playing || '') || nextPres !== f.presence || (match.user_id && match.user_id !== f.userId)) {
             changed = true;
             return Object.assign({}, f, {
               userId: match.user_id || f.userId || '',
               playing: resolved,
               presence: nextPres,
-              updatedAt: match.atualizado_em || new Date().toISOString()
+              updatedAt: match.atualizado_em || ''
             });
+          }
+        } else {
+          const activeStored = isRecentlyActive(f.updatedAt);
+          if (!activeStored && (f.playing || f.presence !== 'offline')) {
+            changed = true;
+            return Object.assign({}, f, { playing: '', presence: 'offline' });
           }
         }
         return f;
@@ -1656,6 +1683,7 @@ kbd {
       cloud.ready = true;
       renderAccount();
       subscribeRealtime();
+      startHeartbeat();
       const { data, error } = await cloud.client.auth.getSession();
       if (error) throw error;
       cloud.client.auth.onAuthStateChange((evt) => {
@@ -1696,8 +1724,8 @@ kbd {
         state.recents = cr.slice(0, MAX_RECENTES);
         state.friends = remoteFriends;
       }
-      if (data.jogo_atual && !state.nowPlaying) {
-        state.nowPlaying = resolveGameLabel(data.jogo_atual);
+      if (!state.current) {
+        state.nowPlaying = '';
       }
       if (data.avatar_url && !state.profilePhoto) {
         state.profilePhoto = String(data.avatar_url);
@@ -1897,8 +1925,8 @@ kbd {
       tag,
       userId: '',
       playing: '',
-      presence: 'online',
-      updatedAt: new Date().toISOString(),
+      presence: 'offline',
+      updatedAt: '',
       addedAt: new Date().toISOString()
     });
     state.selectedFriend = tag;
@@ -1959,8 +1987,9 @@ kbd {
   }
 
   function getFriendBucket(friend) {
-    if (friend.playing && friend.presence !== 'offline') return 'ingame';
-    if (friend.presence === 'offline') return 'offline';
+    const active = isRecentlyActive(friend.updatedAt);
+    if (friend.playing && friend.presence !== 'offline' && active) return 'ingame';
+    if (friend.presence === 'offline' || !active) return 'offline';
     return 'online';
   }
 
@@ -2135,10 +2164,11 @@ kbd {
 
     $('#chat-friend-name').textContent = friend.tag;
     const stEl = $('#chat-friend-status');
-    if (friend.playing && friend.presence !== 'offline') {
+    const bucket = getFriendBucket(friend);
+    if (bucket === 'ingame') {
       stEl.textContent = `Em jogo: ${friend.playing}`;
       stEl.className = 'ingame';
-    } else if (friend.presence === 'offline') {
+    } else if (bucket === 'offline') {
       stEl.textContent = 'Offline';
       stEl.className = '';
     } else {
@@ -2745,7 +2775,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     startGame();
   }
 
-  function closeGame() {
+  async function closeGame() {
     state.token++;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     teardown();
@@ -2755,8 +2785,22 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     document.body.style.overflow = '';
     const last = state.current;
     state.current = null;
-    setNowPlaying('');
+    state.nowPlaying = '';
+    renderAccount();
+    renderSteamFriends();
     render();
+    if (cloud.client && cloud.user) {
+      try {
+        await cloud.client
+          .from(CONFIG.TABLE)
+          .upsert({
+            user_id: cloud.user.id,
+            jogo_atual: null,
+            atualizado_em: new Date().toISOString()
+          }, { onConflict: 'user_id' });
+        setSync('saved');
+      } catch {}
+    }
     if (last) { const el = grid.querySelector(`[data-id="${last.id}"]`); if (el) el.focus(); }
   }
 
