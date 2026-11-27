@@ -995,7 +995,7 @@ kbd {
   const save = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
   const cleanIds = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
   const uniq = (arr) => [...new Set(arr)];
-  const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
   function resolveGameLabel(rawGame) {
     const val = String(rawGame || '').trim();
@@ -1019,7 +1019,7 @@ kbd {
         const key = norm(tag);
         if (tag && !seen.has(key)) {
           seen.add(key);
-          out.push({ tag, playing: '', presence: 'online', updatedAt: '', addedAt: new Date().toISOString() });
+          out.push({ tag, userId: '', playing: '', presence: 'online', updatedAt: '', addedAt: new Date().toISOString() });
         }
       } else if (item && typeof item === 'object' && typeof item.tag === 'string') {
         const tag = item.tag.trim().slice(0, 64);
@@ -1030,6 +1030,7 @@ kbd {
           const pres = ['online', 'away', 'offline'].includes(item.presence) ? item.presence : 'online';
           out.push({
             tag,
+            userId: item.userId || item.user_id || '',
             playing,
             presence: pres,
             updatedAt: item.updatedAt || item.atualizado_em || '',
@@ -1279,7 +1280,7 @@ kbd {
    * CONTA, AMIGOS ESTILO STEAM, CHAT SALVO NA NUVEM E SUPABASE
    * ===================================================================== */
   const SYNC_LABELS = { local: 'Modo local', syncing: 'Sincronizando...', saved: 'Salvo na nuvem', error: 'Erro de sincronização' };
-  const cloud = { client: null, user: null, status: 'local', timer: null, ready: false, channel: null };
+  const cloud = { client: null, user: null, status: 'local', timer: null, ready: false, channel: null, msgChannel: null };
 
   function hasActiveSession() {
     return Boolean(cloud.user || (state.localAccount && state.localAccount.active));
@@ -1295,6 +1296,20 @@ kbd {
       return state.localAccount.label || 'Jogador Local';
     }
     return 'Jogador Local';
+  }
+
+  function getMyAliases() {
+    const aliases = new Set();
+    if (cloud.user && cloud.user.id) aliases.add(norm(cloud.user.id));
+    if (cloud.user && cloud.user.email) aliases.add(norm(cloud.user.email));
+    if (cloud.user && cloud.user.user_metadata && cloud.user.user_metadata.nickname) {
+      aliases.add(norm(cloud.user.user_metadata.nickname));
+    }
+    if (state.localAccount && state.localAccount.nick) aliases.add(norm(state.localAccount.nick));
+    if (state.localAccount && state.localAccount.email) aliases.add(norm(state.localAccount.email));
+    aliases.add(norm(getMyDisplayName()));
+    aliases.delete('');
+    return aliases;
   }
 
   function isDevUser(name) {
@@ -1366,66 +1381,94 @@ kbd {
     });
   }
 
-  function subscribeRealtimePresence() {
-    if (!cloud.client || cloud.channel) return;
-    try {
-      cloud.channel = cloud.client
-        .channel('mnzplay-perfis-presenca')
-        .on('postgres_changes', { event: '*', schema: 'public', table: CONFIG.TABLE }, () => {
-          refreshFriendsPresence(true);
-        })
-        .subscribe();
-    } catch {}
+  function subscribeRealtime() {
+    if (!cloud.client) return;
+    if (!cloud.channel) {
+      try {
+        cloud.channel = cloud.client
+          .channel('mnzplay-perfis-presenca')
+          .on('postgres_changes', { event: '*', schema: 'public', table: CONFIG.TABLE }, (payload) => {
+            const changedRow = payload && payload.new;
+            if (cloud.user && changedRow && changedRow.user_id === cloud.user.id) return;
+            refreshFriendsPresence(true);
+          })
+          .subscribe();
+      } catch {}
+    }
+    if (!cloud.msgChannel) {
+      try {
+        cloud.msgChannel = cloud.client
+          .channel('mnzplay-mensagens-live')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: CONFIG.MSG_TABLE }, () => {
+            if (cloud.user) pullMessagesFromCloud(state.selectedFriend || null);
+          })
+          .subscribe();
+      } catch {}
+    }
+  }
+
+  function mapCloudMessageToFriendKey(row) {
+    const myId = cloud.user ? cloud.user.id : '';
+    const fromMe = row.remetente_id === myId;
+    const senderName = row.remetente_nome || '';
+    const senderKey = row.remetente_chave || '';
+    const destKey = row.destinatario_chave || '';
+
+    if (fromMe) {
+      const matchedFriend = state.friends.find(f =>
+        norm(f.tag) === norm(destKey) || (f.userId && norm(f.userId) === norm(destKey))
+      );
+      return matchedFriend ? norm(matchedFriend.tag) : norm(destKey);
+    }
+
+    const matchedSender = state.friends.find(f =>
+      (f.userId && norm(f.userId) === norm(row.remetente_id)) ||
+      norm(f.tag) === norm(senderName) ||
+      norm(f.tag) === norm(senderKey)
+    );
+    return matchedSender ? norm(matchedSender.tag) : norm(senderName || senderKey || row.remetente_id);
   }
 
   async function pullMessagesFromCloud(friendTag) {
     if (!cloud.client || !cloud.user) return;
     try {
-      let query = cloud.client
+      const myAliases = [...getMyAliases()];
+      const filters = [`remetente_id.eq.${cloud.user.id}`];
+      myAliases.forEach(a => {
+        if (a && !a.includes(',')) filters.push(`destinatario_chave.eq.${a}`);
+      });
+
+      const { data, error } = await cloud.client
         .from(CONFIG.MSG_TABLE)
-        .select('id, remetente_id, remetente_nome, destinatario_chave, texto, criado_em')
-        .or(`remetente_id.eq.${cloud.user.id},destinatario_chave.eq.${norm(cloud.user.id)}`)
+        .select('id, remetente_id, remetente_nome, remetente_chave, destinatario_chave, texto, criado_em')
+        .or(filters.join(','))
         .order('criado_em', { ascending: true })
-        .limit(300);
+        .limit(400);
 
-      if (friendTag) {
-        query = query.eq('destinatario_chave', norm(friendTag));
-      }
-
-      const { data, error } = await query;
       if (error || !Array.isArray(data)) return;
 
-      const grouped = Object.assign({}, state.chats);
-      if (friendTag) {
-        const key = norm(friendTag);
-        const existingLocal = (grouped[key] || []).filter(m => !m.cloudSaved);
-        const fromCloud = data.map(row => normalizeMsg({
+      const byKey = {};
+      data.forEach(row => {
+        const key = mapCloudMessageToFriendKey(row);
+        if (!key) return;
+        if (friendTag && key !== norm(friendTag)) return;
+        if (!byKey[key]) byKey[key] = [];
+        byKey[key].push(normalizeMsg({
           id: row.id,
           fromMe: row.remetente_id === cloud.user.id,
           text: row.texto,
           createdAt: row.criado_em,
           cloudSaved: true
         }));
-        grouped[key] = cleanChatsMap({ [key]: [...fromCloud, ...existingLocal] })[key] || [];
-      } else {
-        const byKey = {};
-        data.forEach(row => {
-          const key = norm(row.destinatario_chave || '');
-          if (!key) return;
-          if (!byKey[key]) byKey[key] = [];
-          byKey[key].push(normalizeMsg({
-            id: row.id,
-            fromMe: row.remetente_id === cloud.user.id,
-            text: row.texto,
-            createdAt: row.criado_em,
-            cloudSaved: true
-          }));
-        });
-        for (const [key, cloudList] of Object.entries(byKey)) {
-          const localOnly = (grouped[key] || []).filter(m => !m.cloudSaved);
-          grouped[key] = cleanChatsMap({ [key]: [...cloudList, ...localOnly] })[key] || [];
-        }
-      }
+      });
+
+      const grouped = Object.assign({}, state.chats);
+      const targetKeys = friendTag ? [norm(friendTag)] : Object.keys(byKey);
+      targetKeys.forEach(key => {
+        const existingLocal = (grouped[key] || []).filter(m => !m.cloudSaved);
+        const cloudList = byKey[key] || [];
+        grouped[key] = cleanChatsMap({ [key]: [...cloudList, ...existingLocal] })[key] || [];
+      });
 
       state.chats = cleanChatsMap(grouped);
       persistLocal();
@@ -1441,28 +1484,30 @@ kbd {
     try {
       const { data, error } = await cloud.client
         .from(CONFIG.TABLE)
-        .select('user_id, nome_exibicao, jogo_atual, atualizado_em, amigos')
-        .limit(100);
+        .select('user_id, nome_exibicao, jogo_atual, atualizado_em')
+        .limit(200);
       if (error) {
         if (!silent) setSteamMsg('Não foi possível atualizar status da nuvem: ' + error.message, 'err');
         renderSteamFriends();
         return;
       }
-      const rows = Array.isArray(data) ? data : [];
+      const rows = (Array.isArray(data) ? data : []).filter(r => !cloud.user || r.user_id !== cloud.user.id);
       let changed = false;
+
       state.friends = state.friends.map(f => {
         const needle = norm(f.tag);
         const match = rows.find(r =>
+          (f.userId && r.user_id === f.userId) ||
           norm(r.user_id || '') === needle ||
-          norm(r.nome_exibicao || '') === needle ||
-          (Array.isArray(r.amigos) && r.amigos.some(a => norm(typeof a === 'string' ? a : (a && a.tag) || '') === needle))
+          norm(r.nome_exibicao || '') === needle
         );
         if (match) {
           const resolved = resolveGameLabel(match.jogo_atual || '');
-          const nextPres = resolved ? 'online' : (f.presence === 'offline' ? 'offline' : 'online');
-          if (resolved !== (f.playing || '') || nextPres !== f.presence) {
+          const nextPres = f.presence === 'offline' ? 'offline' : 'online';
+          if (resolved !== (f.playing || '') || nextPres !== f.presence || (match.user_id && match.user_id !== f.userId)) {
             changed = true;
             return Object.assign({}, f, {
+              userId: match.user_id || f.userId || '',
               playing: resolved,
               presence: nextPres,
               updatedAt: match.atualizado_em || new Date().toISOString()
@@ -1610,7 +1655,7 @@ kbd {
       cloud.client = window.supabase.createClient(CONFIG.SUPABASE_URL.trim(), CONFIG.SUPABASE_ANON_KEY.trim());
       cloud.ready = true;
       renderAccount();
-      subscribeRealtimePresence();
+      subscribeRealtime();
       const { data, error } = await cloud.client.auth.getSession();
       if (error) throw error;
       cloud.client.auth.onAuthStateChange((evt) => {
@@ -1839,8 +1884,8 @@ kbd {
       $('#steam-add-input').focus();
       return;
     }
-    const me = getMyDisplayName();
-    if (norm(me) === norm(tag)) {
+    const myAliases = getMyAliases();
+    if (myAliases.has(norm(tag))) {
       setSteamMsg('Você não pode adicionar a si mesmo.', 'err');
       return;
     }
@@ -1848,10 +1893,10 @@ kbd {
       setSteamMsg(`"${tag}" já está na sua lista de amigos.`, 'err');
       return;
     }
-    const sampleGame = GAMES[Math.floor(Math.random() * GAMES.length)];
     state.friends.unshift({
       tag,
-      playing: cloud.ready ? '' : (sampleGame ? sampleGame.titulo : ''),
+      userId: '',
+      playing: '',
       presence: 'online',
       updatedAt: new Date().toISOString(),
       addedAt: new Date().toISOString()
@@ -2159,12 +2204,14 @@ kbd {
 
     if (cloud.client && cloud.user) {
       setSync('syncing');
+      const destKey = friend.userId && norm(friend.tag) === norm(friend.userId) ? norm(friend.userId) : key;
       const { data, error } = await cloud.client
         .from(CONFIG.MSG_TABLE)
         .insert({
           remetente_id: cloud.user.id,
           remetente_nome: getMyDisplayName(),
-          destinatario_chave: key,
+          remetente_chave: norm(getMyDisplayName()),
+          destinatario_chave: destKey,
           texto: text,
           criado_em: nowIso
         })
@@ -2731,12 +2778,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   /* =====================================================================
    * CONTROLE NO MENU PRINCIPAL (Gamepad API)
    * ===================================================================== */
-  const padState = {
-    connectedName: null,
-    activeIndex: -1,
-    prevButtons: [],
-    lastMove: 0
-  };
+  const padState = { connectedName: null, activeIndex: -1, prevButtons: [], lastMove: 0 };
 
   function isButtonPressed(btn) {
     if (!btn) return false;
@@ -2790,7 +2832,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     const label = $('#pad-label');
     const info = $('#cfg-pad-info');
     if (pad) {
-      padState.connectedName = pad.id || 'Controle USB/Bluetooth';
+      padState.connectedName = `${pads.length}:${pad.id || 'Controle USB/Bluetooth'}`;
       pill.classList.add('connected');
       label.textContent = pads.length > 1 ? `Controle ativo (${pads.length})` : 'Controle ativo';
       const namesList = pads.map(item => `Slot ${item.index + 1}: ${(item.pad.id || 'Controle').replace(/</g, '&lt;')}`).join('<br>');
@@ -2947,11 +2989,8 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     const pads = getConnectedGamepads();
     const pad = getActiveGamepad();
     if (pad) {
-      const currentSignature = `${pads.length}:${pad.id || ''}`;
-      if (padState.connectedName !== currentSignature) {
-        padState.connectedName = currentSignature;
-        updatePadStatusUI();
-      }
+      const sig = `${pads.length}:${pad.id || ''}`;
+      if (padState.connectedName !== sig) updatePadStatusUI();
       const dz = state.cfg.deadzone || 0.25;
       const axX = pad.axes[0] || 0;
       const axY = pad.axes[1] || 0;
@@ -2977,7 +3016,6 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
         padState.prevButtons[idx] = pressed;
       }
     } else if (padState.connectedName) {
-      padState.connectedName = null;
       updatePadStatusUI();
     }
     requestAnimationFrame(pollGamepad);
