@@ -78,6 +78,28 @@ button { cursor: pointer; }
 .pad-pill.connected .pad-led { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .pad-led { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 
+/* Tag DEV */
+.dev-badge {
+  display: inline-flex; align-items: center;
+  padding: 1px 6px; border-radius: 6px;
+  font-size: .64rem; font-weight: 800; letter-spacing: .7px; text-transform: uppercase;
+  color: #f3e8ff;
+  background: linear-gradient(135deg, rgba(147, 51, 234, .48), rgba(192, 132, 252, .24));
+  border: 1px solid rgba(192, 132, 252, .65);
+  box-shadow: 0 0 10px rgba(168, 85, 247, .35);
+  line-height: 1.3; vertical-align: middle; flex: none;
+}
+#top-avatar-name,
+#steam-my-name {
+  display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.steam-friend-name {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+}
+.steam-friend-name-txt {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* Botão de conta / status de sincronização */
 .sync {
   display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
@@ -338,7 +360,7 @@ body.no-anim .cover-face img { transition: none; }
 }
 .steam-friend-av .steam-state-dot { width: 11px; height: 11px; right: -2px; bottom: -2px; }
 .steam-friend-text { min-width: 0; flex: 1; }
-.steam-friend-name { font-size: .94rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.steam-friend-name { font-size: .94rem; font-weight: 700; color: var(--text); }
 .steam-friend-status { font-size: .78rem; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .steam-friend-status.ingame { color: var(--ok); font-weight: 700; }
 .steam-friend-status.online { color: #7dd3fc; }
@@ -879,6 +901,7 @@ kbd {
     EJS_PATH: 'https://cdn.emulatorjs.org/stable/data/'
   };
   const CLOUD_ON = Boolean(CONFIG.SUPABASE_URL.trim() && CONFIG.SUPABASE_ANON_KEY.trim());
+  const DEV_NICKS = ['moonzuw'];
 
   const GAMES = [
     { id: 'n64-001', titulo: 'Super Mario 64', sistema: 'N64', runner: 'ejs', core: 'n64', arquivo: 'roms/n64/super-mario-64.z64', romBase64: '', capa: 'https://coverproject.sfo2.cdn.digitaloceanspaces.com/nintendo_64/nintendo_64.supermario64_US.16220529131055272362_thumb.jpg', verso: '', ano: 1996, jogadores: '1 Jogador', sinopse: 'Explore o castelo da Princesa Peach, entre nos quadros e colete 120 estrelas em 3D.' },
@@ -1274,6 +1297,36 @@ kbd {
     return 'Jogador Local';
   }
 
+  function isDevUser(name) {
+    const clean = norm(name || '').trim();
+    if (DEV_NICKS.includes(clean)) return true;
+    if (state.localAccount && DEV_NICKS.includes(norm(state.localAccount.nick || ''))) return true;
+    if (cloud.user && cloud.user.email && norm(cloud.user.email).startsWith('moonzuw@')) return true;
+    return false;
+  }
+
+  function buildNameFragment(name) {
+    const frag = document.createDocumentFragment();
+    const span = document.createElement('span');
+    span.className = 'steam-friend-name-txt';
+    span.textContent = name;
+    frag.appendChild(span);
+
+    if (isDevUser(name)) {
+      const badge = document.createElement('span');
+      badge.className = 'dev-badge';
+      badge.textContent = 'DEV';
+      frag.appendChild(badge);
+    }
+    return frag;
+  }
+
+  function setNameWithDevBadge(el, name) {
+    if (!el) return;
+    el.innerHTML = '';
+    el.appendChild(buildNameFragment(name));
+  }
+
   function setSync(status) {
     cloud.status = status;
     const label = SYNC_LABELS[status];
@@ -1473,7 +1526,7 @@ kbd {
   function renderProfilePhotoUI() {
     const name = getMyDisplayName();
     const letter = (name[0] || 'M').toUpperCase();
-    $('#top-avatar-name').textContent = name;
+    setNameWithDevBadge($('#top-avatar-name'), name);
     $('#top-avatar-letter').textContent = letter;
     const topImg = $('#top-avatar-img');
     const topLet = $('#top-avatar-letter');
@@ -1869,7 +1922,7 @@ kbd {
   function renderSteamFriends() {
     renderProfilePhotoUI();
     const myName = getMyDisplayName();
-    $('#steam-my-name').textContent = myName;
+    setNameWithDevBadge($('#steam-my-name'), myName);
     $('#steam-my-presence').value = state.presence;
 
     const myDot = $('#steam-my-dot');
@@ -1958,7 +2011,7 @@ kbd {
         txt.className = 'steam-friend-text';
         const nm = document.createElement('div');
         nm.className = 'steam-friend-name';
-        nm.textContent = f.tag;
+        nm.appendChild(buildNameFragment(f.tag));
 
         const st = document.createElement('div');
         st.className = `steam-friend-status ${gMeta.key}`;
@@ -2678,18 +2731,60 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   /* =====================================================================
    * CONTROLE NO MENU PRINCIPAL (Gamepad API)
    * ===================================================================== */
-  const padState = { connectedName: null, prevButtons: [], lastMove: 0 };
+  const padState = {
+    connectedName: null,
+    activeIndex: -1,
+    prevButtons: [],
+    lastMove: 0
+  };
+
+  function isButtonPressed(btn) {
+    if (!btn) return false;
+    return Boolean(btn.pressed || (typeof btn.value === 'number' && btn.value > 0.5));
+  }
+
+  function hasAnyGamepadActivity(pad, dz) {
+    if (!pad) return false;
+    if (pad.buttons && pad.buttons.some(isButtonPressed)) return true;
+    if (pad.axes) {
+      for (let i = 0; i < pad.axes.length; i++) {
+        if (Math.abs(pad.axes[i] || 0) > dz) return true;
+      }
+    }
+    return false;
+  }
+
+  function getConnectedGamepads() {
+    if (!navigator.getGamepads) return [];
+    const raw = navigator.getGamepads();
+    const list = [];
+    for (let i = 0; i < raw.length; i++) {
+      if (raw[i] && raw[i].connected) list.push({ index: i, pad: raw[i] });
+    }
+    return list;
+  }
 
   function getActiveGamepad() {
-    if (!navigator.getGamepads) return null;
-    const pads = navigator.getGamepads();
-    for (let i = 0; i < pads.length; i++) {
-      if (pads[i] && pads[i].connected) return pads[i];
+    const pads = getConnectedGamepads();
+    if (!pads.length) {
+      padState.activeIndex = -1;
+      return null;
     }
-    return null;
+    const dz = state.cfg.deadzone || 0.25;
+    for (let i = 0; i < pads.length; i++) {
+      if (hasAnyGamepadActivity(pads[i].pad, dz)) {
+        padState.activeIndex = pads[i].index;
+        return pads[i].pad;
+      }
+    }
+    const kept = pads.find(item => item.index === padState.activeIndex);
+    if (kept) return kept.pad;
+    padState.activeIndex = pads[0].index;
+    return pads[0].pad;
   }
 
   function updatePadStatusUI() {
+    const pads = getConnectedGamepads();
     const pad = getActiveGamepad();
     const pill = $('#btn-pad');
     const label = $('#pad-label');
@@ -2697,8 +2792,9 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     if (pad) {
       padState.connectedName = pad.id || 'Controle USB/Bluetooth';
       pill.classList.add('connected');
-      label.textContent = 'Controle ativo';
-      info.innerHTML = '<strong>Controle conectado:</strong> ' + padState.connectedName.replace(/</g, '&lt;') + '<br>D-Pad/Analógico: mover • A: jogar • Y: virar mídia • X: favoritar • Start: config • B: voltar.';
+      label.textContent = pads.length > 1 ? `Controle ativo (${pads.length})` : 'Controle ativo';
+      const namesList = pads.map(item => `Slot ${item.index + 1}: ${(item.pad.id || 'Controle').replace(/</g, '&lt;')}`).join('<br>');
+      info.innerHTML = '<strong>Controle conectado:</strong><br>' + namesList + '<br>D-Pad/Analógico: mover • A: jogar • Y: virar mídia • X: favoritar • Start: config • B: voltar.';
     } else {
       padState.connectedName = null;
       pill.classList.remove('connected');
@@ -2848,18 +2944,25 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   }
 
   function pollGamepad(now) {
+    const pads = getConnectedGamepads();
     const pad = getActiveGamepad();
     if (pad) {
-      if (!padState.connectedName) updatePadStatusUI();
+      const currentSignature = `${pads.length}:${pad.id || ''}`;
+      if (padState.connectedName !== currentSignature) {
+        padState.connectedName = currentSignature;
+        updatePadStatusUI();
+      }
       const dz = state.cfg.deadzone || 0.25;
       const axX = pad.axes[0] || 0;
       const axY = pad.axes[1] || 0;
+      const hatX = pad.axes[6] || 0;
+      const hatY = pad.axes[7] || 0;
       const b = pad.buttons || [];
 
-      const left = Boolean((b[14] && b[14].pressed) || axX < -dz);
-      const right = Boolean((b[15] && b[15].pressed) || axX > dz);
-      const up = Boolean((b[12] && b[12].pressed) || axY < -dz);
-      const down = Boolean((b[13] && b[13].pressed) || axY > dz);
+      const left = Boolean(isButtonPressed(b[14]) || axX < -dz || hatX < -0.5);
+      const right = Boolean(isButtonPressed(b[15]) || axX > dz || hatX > 0.5);
+      const up = Boolean(isButtonPressed(b[12]) || axY < -dz || hatY < -0.5);
+      const down = Boolean(isButtonPressed(b[13]) || axY > dz || hatY > 0.5);
 
       if (left) handleGamepadDir('left', now);
       else if (right) handleGamepadDir('right', now);
@@ -2869,24 +2972,29 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
       const watchButtons = [0, 1, 2, 3, 4, 5, 9];
       for (let i = 0; i < watchButtons.length; i++) {
         const idx = watchButtons[i];
-        const pressed = Boolean(b[idx] && b[idx].pressed);
+        const pressed = isButtonPressed(b[idx]);
         if (pressed && !padState.prevButtons[idx]) handleGamepadButton(idx);
         padState.prevButtons[idx] = pressed;
       }
     } else if (padState.connectedName) {
+      padState.connectedName = null;
       updatePadStatusUI();
     }
     requestAnimationFrame(pollGamepad);
   }
 
   window.addEventListener('gamepadconnected', () => {
+    padState.connectedName = null;
     updatePadStatusUI();
     if (player.hidden && accountEl.hidden && settingsEl.hidden && photoModalEl.hidden && !grid.querySelector('.card:focus')) {
       const first = grid.querySelector('.card');
       if (first) first.focus();
     }
   });
-  window.addEventListener('gamepaddisconnected', updatePadStatusUI);
+  window.addEventListener('gamepaddisconnected', () => {
+    padState.connectedName = null;
+    updatePadStatusUI();
+  });
 
   /* ---------- Eventos ---------- */
   document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => {
