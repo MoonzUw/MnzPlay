@@ -1,30 +1,35 @@
-MnzPlay
+# MnzPlay
 
-Single-file web gaming and emulation portal (index.html) featuring an interactive catalog, main-menu controller support, a Steam-style friends system, cloud-persisted chat, and Supabase integration.
-Features
+A single-file web gaming and emulation portal (`index.html`) built with vanilla HTML, CSS, and JavaScript, featuring an interactive catalog, 3D physical media cards, main-menu controller support, a Steam-style friends list, chat, and optional Supabase cloud integration.
 
-    Catalog & Navigation: Games, Favorites, and Recent tabs, instant search, and filtering by system (N64, SNES, Web / JS).
+---
 
-    3D Physical Media: Front-and-back flip view with game details and support for customizing front and back cover art locally in the browser.
+## ✨ Features
 
-    In-Browser Emulation: Runs via EmulatorJS (with local ROM loading through the ROM button) alongside shortcuts for web links/ports.
+* **Catalog & Navigation:** *Games*, *Favorites*, *Recent*, *Friends*, *Achievements*, and *Settings* tabs, with instant search and system filtering (`N64`, `SNES`, `WEB`).
+* **3D Physical Media:** Front-and-back card flip view showing game details, launch actions, and custom front/back cover art saved locally in the browser.
+* **In-Browser Emulation:** Powered by **EmulatorJS** (`n64` and `snes`) with local ROM loading directly inside the player, plus links/shortcuts for external `WEB` titles.
+* **Controller & Input Support:** Gamepad API support with D-pad/analog navigation, adjustable deadzone, button shortcuts, and keyboard controls.
+* **Friends & Chat:** Friends list grouped by status (*In-Game*, *Online*, *Offline*), live/current game display, profile photo & nickname customization, and cloud-synced chat when signed in.
+* **Language Detection:** Automatic initial locale detection with support for `pt-BR`, `en`, and `es`.
 
-    Controller (Gamepad API): D-Pad/analog navigation, button shortcuts, configurable deadzone, and status indicators in the top bar.
+---
 
-    Friends & Cloud Chat: Friends list grouped by status (In-Game, Online, Offline), current game presence, and messages saved in Supabase with local caching in localStorage.
+## 🏗️ Architecture & Backend
 
-Architecture & Backend
+* **Frontend:** Self-contained `index.html` (HTML, CSS, and JavaScript with no build step required).
+* **Local Storage:** Favorites, recents, settings, custom covers/backs, profile photo, and local session state persist in `localStorage` (loaded ROMs stay in browser memory for the active session only).
+* **Cloud (Supabase):** Authentication and sync backed by the `perfis` and `mensagens` tables, with seamless local/guest fallback when unconfigured or offline.
 
-    Frontend: Self-contained index.html (HTML, CSS, and JavaScript).
+---
 
-    Supabase: Authentication, perfis profiles table, and mensagens message persistence.
+## 🚀 Hosting
 
-Hosting
+* **GitHub Pages:** Published from the main branch at the repository root (`/`).
+* **Cloudflare Pages:** Connected static deployment mirror for redundancy.
 
-    GitHub Pages: Published from the main branch at the repository root (/ (root)).
+---
 
-    Cloudflare Pages: Static mirror/hosting connected to the repository for redundancy.
+## ⚠️ ROM Notice
 
-ROM Notice
-
-ROMs are not distributed with the repository; use the ROM button inside the player to load your own files (.z64, .n64, .v64, .sfc, .smc) directly in the browser.
+ROMs are **not** included in this repository. Use the **ROM** button inside the player to load your own compatible ROM files (`.z64`, `.n64`, `.v64`, `.sfc`, `.smc`) directly in the browser.
