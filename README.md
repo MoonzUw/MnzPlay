@@ -33,3 +33,11 @@ A single-file web gaming and emulation portal (`index.html`) built with vanilla 
 ## ⚠️ ROM Notice
 
 ROMs are **not** included in this repository. Use the **ROM** button inside the player to load your own compatible ROM files (`.z64`, `.n64`, `.v64`, `.sfc`, `.smc`) directly in the browser.
+
+## Support / Ko-fi
+
+If you enjoy **MnzPlay** and want to help keep the portal online, fund cloud sync resources, and support new features, you can buy me a coffee on Ko-fi:
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20MoonzUw-ff5e5b?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/moonzuw)
+
+Direct link: [https://ko-fi.com/moonzuw](https://ko-fi.com/moonzuw)
