@@ -1,25 +1,30 @@
-# MnzPlay
+MnzPlay
 
-Portal web de jogos e emulação em arquivo único (`index.html`), com catálogo interativo, suporte a controle no menu principal, sistema de amigos no estilo Steam, chat com persistência na nuvem e integração com **Supabase**.
+Single-file web gaming and emulation portal (index.html) featuring an interactive catalog, main-menu controller support, a Steam-style friends system, cloud-persisted chat, and Supabase integration.
+Features
 
-## Recursos
+    Catalog & Navigation: Games, Favorites, and Recent tabs, instant search, and filtering by system (N64, SNES, Web / JS).
 
-* **Catálogo e navegação:** abas de *Jogos*, *Favoritos* e *Recentes*, busca instantânea e filtro por sistema (*N64*, *SNES*, *Web / JS*).
-* **Mídia física 3D:** giro frente e verso com detalhes do jogo e possibilidade de personalizar frente e verso localmente no navegador.
-* **Emulação no navegador:** execução via *EmulatorJS* (com suporte a carregamento de ROMs locais pelo botão **ROM**) e atalhos para links/ports web.
-* **Controle (Gamepad API):** navegação por D-Pad/analógico, atalhos de botões, deadzone configurável e indicadores de status na barra superior.
-* **Amigos e chat na nuvem:** lista de amigos por status (*Em jogo*, *Online*, *Offline*), presença de jogo atual e mensagens salvas no **Supabase** com cache local em `localStorage`.
+    3D Physical Media: Front-and-back flip view with game details and support for customizing front and back cover art locally in the browser.
 
-## Arquitetura e Backend
+    In-Browser Emulation: Runs via EmulatorJS (with local ROM loading through the ROM button) alongside shortcuts for web links/ports.
 
-* **Frontend:** `index.html` autocontido (HTML, CSS e JavaScript).
-* **Supabase:** autenticação, tabela de perfis (`perfis`) e persistência de mensagens (`mensagens`).
+    Controller (Gamepad API): D-Pad/analog navigation, button shortcuts, configurable deadzone, and status indicators in the top bar.
 
-## Hospedagem
+    Friends & Cloud Chat: Friends list grouped by status (In-Game, Online, Offline), current game presence, and messages saved in Supabase with local caching in localStorage.
 
-* **GitHub Pages:** publicado a partir da branch `main` na raiz (`/ (root)`).
-* **Cloudflare Pages:** espelho/hospedagem estática conectada ao repositório para redundância.
+Architecture & Backend
 
-## Aviso sobre ROMs
+    Frontend: Self-contained index.html (HTML, CSS, and JavaScript).
 
-As ROMs não são distribuídas junto ao repositório; utilize o botão **ROM** dentro do player para carregar seus próprios arquivos (`.z64`, `.n64`, `.v64`, `.sfc`, `.smc`) diretamente no navegador.
+    Supabase: Authentication, perfis profiles table, and mensagens message persistence.
+
+Hosting
+
+    GitHub Pages: Published from the main branch at the repository root (/ (root)).
+
+    Cloudflare Pages: Static mirror/hosting connected to the repository for redundancy.
+
+ROM Notice
+
+ROMs are not distributed with the repository; use the ROM button inside the player to load your own files (.z64, .n64, .v64, .sfc, .smc) directly in the browser.
