@@ -277,6 +277,7 @@ body.no-anim .cover-face img { transition: none; }
   display: grid; place-items: center; font-weight: 800; font-size: 1.15rem;
   background: linear-gradient(135deg, #5b21b6, #c084fc); color: #fff;
   border: 2px solid rgba(192, 132, 252, .45);
+  overflow: hidden;
 }
 .steam-state-dot {
   position: absolute; right: -3px; bottom: -3px;
@@ -438,7 +439,6 @@ kbd {
 .rom-card p { color: var(--muted); line-height: 1.5; margin-bottom: 18px; font-size: .92rem; }
 .rom-card small { display: block; margin-top: 14px; color: var(--muted); font-size: .78rem; line-height: 1.4; }
 
-
 /* Botão de foto/perfil e modal de foto */
 .avatar-pill {
   display: inline-flex; align-items: center; gap: 7px; padding: 3px 11px 3px 4px; border-radius: 999px;
@@ -468,7 +468,6 @@ kbd {
   border: 2px solid var(--accent);
 }
 .photo-preview-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.steam-avatar { width: 50px; height: 50px; overflow: hidden; }
 .avatar { width: 40px; height: 40px; overflow: hidden; }
 .steam-avatar img, .avatar img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: cover; border-radius: inherit; display: block; }
 
@@ -714,7 +713,7 @@ kbd {
       </select>
     </label>
 
-    <label class="field" id="lbl-cfg-lang">Idioma / Language
+    <label class="field" id="lbl-cfg-lang"><span>Idioma / Language</span>
       <select id="cfg-lang">
         <option value="pt-BR">Português (PT-BR)</option>
         <option value="en">English (EN)</option>
@@ -757,7 +756,6 @@ kbd {
   </div>
 </div>
 
-
 <!-- Modal de foto de perfil -->
 <div class="overlay" id="photo-modal" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="photo-title">
@@ -778,7 +776,7 @@ kbd {
       </div>
     </div>
 
-    <label class="field" id="lbl-photo-nick">Nome / Apelido
+    <label class="field" id="lbl-photo-nick"><span>Nome / Apelido</span>
       <input type="text" id="photo-nick-input" maxlength="24" placeholder="Seu nome no MnzPlay">
     </label>
 
@@ -942,7 +940,7 @@ kbd {
     }
   };
 
-  const $ = (s) => document.querySelector(s);
+  const $ = (s, root = document) => root.querySelector(s);
   const grid = $('#grid');
   const emptyEl = $('#empty');
   const counter = $('#counter');
@@ -951,6 +949,7 @@ kbd {
   const stage = $('#player-stage');
   const accountEl = $('#account');
   const settingsEl = $('#settings');
+  const photoModalEl = $('#photo-modal');
   const romPrompt = $('#rom-prompt');
   const romFile = $('#rom-file');
   const coverFile = $('#cover-file');
@@ -1046,13 +1045,39 @@ kbd {
       const seen = new Set();
       out[norm(k)] = arr.map(normalizeMsg).filter(m => {
         if (!m.text.trim()) return false;
-        const dedupKey = `${m.text}__${m.createdAt}`;
+        const dedupKey = `${m.text}__${m.createdAt}__${m.fromMe}`;
         if (seen.has(dedupKey)) return false;
         seen.add(dedupKey);
         return true;
       });
     }
     return out;
+  }
+
+  function detectInitialLang() {
+    try {
+      const saved = localStorage.getItem(LS_LANG);
+      if (saved && I18N[saved]) return saved;
+    } catch {}
+    const list = [
+      ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+      navigator.language || '',
+      Intl.DateTimeFormat().resolvedOptions().locale || ''
+    ];
+    for (const raw of list) {
+      const l = String(raw || '').toLowerCase();
+      if (l.startsWith('pt')) return 'pt-BR';
+      if (l.startsWith('es')) return 'es';
+      if (l.startsWith('en')) return 'en';
+    }
+    const tz = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').toLowerCase();
+    if (tz.includes('america/sao_paulo') || tz.includes('america/fortaleza') || tz.includes('america/recife') || tz.includes('america/belem') || tz.includes('america/manaus')) {
+      return 'pt-BR';
+    }
+    if (tz.startsWith('america/') || tz.includes('europe/madrid')) {
+      return 'es';
+    }
+    return 'pt-BR';
   }
 
   const state = {
@@ -1074,28 +1099,7 @@ kbd {
     customCovers: loadObj(LS_COVERS),
     customBacks: loadObj(LS_BACKS),
     profilePhoto: (() => { try { return localStorage.getItem(LS_PHOTO) || ''; } catch { return ''; } })(),
-    lang: (() => {
-      try {
-        const saved = localStorage.getItem(LS_LANG);
-        if (saved && I18N[saved]) return saved;
-      } catch {}
-      const candidates = [
-        ...(Array.isArray(navigator.languages) ? navigator.languages : []),
-        navigator.language || '',
-        Intl.DateTimeFormat().resolvedOptions().locale || ''
-      ].map(x => String(x || '').toLowerCase());
-      const tz = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').toLowerCase();
-      if (candidates.some(c => c.startsWith('pt')) || tz.includes('sao_paulo') || tz.includes('fortaleza') || tz.includes('recife') || tz.includes('belem') || tz.includes('manaus') || tz.includes('cuiaba') || tz.includes('porto_velho') || tz.includes('rio_branco')) {
-        return 'pt-BR';
-      }
-      if (candidates.some(c => c.startsWith('es')) || tz.includes('madrid') || tz.includes('mexico') || tz.includes('buenos_aires') || tz.includes('bogota') || tz.includes('lima') || tz.includes('santiago')) {
-        return 'es';
-      }
-      if (candidates.some(c => c.startsWith('en'))) {
-        return 'en';
-      }
-      return 'pt-BR';
-    })(),
+    lang: detectInitialLang(),
     flippedIds: new Set(),
     cfg: loadCfg(),
     current: null,
@@ -1155,7 +1159,7 @@ kbd {
 
   let settingsFocus = null;
   function mountSettingsDialog(intoTab) {
-    const dlg = settingsEl.querySelector('.dialog');
+    const dlg = $('.dialog', settingsEl);
     const host = $('#settings-tab-host');
     if (!dlg || !host) return;
     if (intoTab) {
@@ -1326,8 +1330,8 @@ kbd {
     try {
       let query = cloud.client
         .from(CONFIG.MSG_TABLE)
-        .select('id, remetente_nome, destinatario_chave, texto, criado_em')
-        .eq('remetente_id', cloud.user.id)
+        .select('id, remetente_id, remetente_nome, destinatario_chave, texto, criado_em')
+        .or(`remetente_id.eq.${cloud.user.id},destinatario_chave.eq.${norm(cloud.user.id)}`)
         .order('criado_em', { ascending: true })
         .limit(300);
 
@@ -1344,7 +1348,7 @@ kbd {
         const existingLocal = (grouped[key] || []).filter(m => !m.cloudSaved);
         const fromCloud = data.map(row => normalizeMsg({
           id: row.id,
-          fromMe: true,
+          fromMe: row.remetente_id === cloud.user.id,
           text: row.texto,
           createdAt: row.criado_em,
           cloudSaved: true
@@ -1358,7 +1362,7 @@ kbd {
           if (!byKey[key]) byKey[key] = [];
           byKey[key].push(normalizeMsg({
             id: row.id,
-            fromMe: true,
+            fromMe: row.remetente_id === cloud.user.id,
             text: row.texto,
             createdAt: row.criado_em,
             cloudSaved: true
@@ -1384,7 +1388,7 @@ kbd {
     try {
       const { data, error } = await cloud.client
         .from(CONFIG.TABLE)
-        .select('user_id, jogo_atual, atualizado_em, amigos')
+        .select('user_id, nome_exibicao, jogo_atual, atualizado_em, amigos')
         .limit(100);
       if (error) {
         if (!silent) setSteamMsg('Não foi possível atualizar status da nuvem: ' + error.message, 'err');
@@ -1397,6 +1401,7 @@ kbd {
         const needle = norm(f.tag);
         const match = rows.find(r =>
           norm(r.user_id || '') === needle ||
+          norm(r.nome_exibicao || '') === needle ||
           (Array.isArray(r.amigos) && r.amigos.some(a => norm(typeof a === 'string' ? a : (a && a.tag) || '') === needle))
         );
         if (match) {
@@ -1422,7 +1427,6 @@ kbd {
     }
   }
 
-
   function applyLanguage() {
     const dict = I18N[state.lang] || I18N['pt-BR'];
     document.documentElement.lang = state.lang;
@@ -1440,15 +1444,30 @@ kbd {
     if (chips[2]) chips[2].textContent = dict.chip_snes;
     if (chips[3]) chips[3].textContent = dict.chip_web;
     $('#cfg-title').textContent = dict.cfg_title;
-    $('#lbl-cfg-lang').childNodes[0].textContent = dict.cfg_lang + '\n      ';
+    const cfgLangSpan = $('#lbl-cfg-lang span');
+    if (cfgLangSpan) cfgLangSpan.textContent = dict.cfg_lang;
     $('#btn-cfg-save').textContent = dict.cfg_save;
     $('#btn-reset-local').textContent = dict.cfg_reset;
     $('#photo-title').textContent = dict.photo_title;
     $('#btn-choose-photo').textContent = dict.photo_choose;
     $('#btn-remove-photo').textContent = dict.photo_remove;
-    $('#lbl-photo-nick').childNodes[0].textContent = dict.photo_nick + '\n      ';
+    const photoNickSpan = $('#lbl-photo-nick span');
+    if (photoNickSpan) photoNickSpan.textContent = dict.photo_nick;
     $('#btn-save-photo').textContent = dict.photo_save;
     if ($('#cfg-lang')) $('#cfg-lang').value = state.lang;
+  }
+
+  function paintAvatarContainer(el, name, letter) {
+    if (!el) return;
+    el.innerHTML = '';
+    if (state.profilePhoto) {
+      const im = document.createElement('img');
+      im.src = state.profilePhoto;
+      im.alt = name;
+      el.appendChild(im);
+    } else {
+      el.textContent = letter;
+    }
   }
 
   function renderProfilePhotoUI() {
@@ -1467,30 +1486,8 @@ kbd {
       topImg.hidden = true;
       topLet.hidden = false;
     }
-    const steamAv = $('#steam-my-avatar');
-    if (steamAv) {
-      steamAv.innerHTML = '';
-      if (state.profilePhoto) {
-        const im = document.createElement('img');
-        im.src = state.profilePhoto;
-        im.alt = name;
-        steamAv.appendChild(im);
-      } else {
-        steamAv.textContent = letter;
-      }
-    }
-    const accAv = $('#acc-avatar');
-    if (accAv) {
-      accAv.innerHTML = '';
-      if (state.profilePhoto) {
-        const im = document.createElement('img');
-        im.src = state.profilePhoto;
-        im.alt = name;
-        accAv.appendChild(im);
-      } else {
-        accAv.textContent = letter;
-      }
-    }
+    paintAvatarContainer($('#steam-my-avatar'), name, letter);
+    paintAvatarContainer($('#acc-avatar'), name, letter);
   }
 
   function renderPhotoModalPreview(src, nick) {
@@ -1518,12 +1515,12 @@ kbd {
     $('#photo-msg').textContent = '';
     $('#photo-msg').className = 'msg';
     renderPhotoModalPreview(draftPhoto, currentNick);
-    $('#photo-modal').hidden = false;
+    photoModalEl.hidden = false;
     $('#btn-choose-photo').focus();
   }
 
   function closePhotoModal() {
-    $('#photo-modal').hidden = true;
+    photoModalEl.hidden = true;
   }
 
   function compressPhotoFile(file) {
@@ -1604,6 +1601,10 @@ kbd {
       if (data.jogo_atual && !state.nowPlaying) {
         state.nowPlaying = resolveGameLabel(data.jogo_atual);
       }
+      if (data.avatar_url && !state.profilePhoto) {
+        state.profilePhoto = String(data.avatar_url);
+        try { localStorage.setItem(LS_PHOTO, state.profilePhoto); } catch {}
+      }
       persistLocal();
       render();
       renderAccount();
@@ -1624,6 +1625,8 @@ kbd {
     const effectiveGame = state.presence === 'offline' ? null : (state.nowPlaying || null);
     const payload = {
       user_id: cloud.user.id,
+      nome_exibicao: getMyDisplayName(),
+      avatar_url: state.profilePhoto || null,
       favoritos: state.favs,
       recentes: state.recents,
       amigos: state.friends,
@@ -1631,7 +1634,7 @@ kbd {
       atualizado_em: new Date().toISOString()
     };
     let { error } = await cloud.client.from(CONFIG.TABLE).upsert(payload, { onConflict: 'user_id' });
-    if (error && /(amigos|jogo_atual)/i.test(error.message || '')) {
+    if (error && /(amigos|jogo_atual|nome_exibicao|avatar_url)/i.test(error.message || '')) {
       const fallbackPayload = {
         user_id: cloud.user.id,
         favoritos: state.favs,
@@ -1867,7 +1870,6 @@ kbd {
     renderProfilePhotoUI();
     const myName = getMyDisplayName();
     $('#steam-my-name').textContent = myName;
-    renderProfilePhotoUI();
     $('#steam-my-presence').value = state.presence;
 
     const myDot = $('#steam-my-dot');
@@ -2179,7 +2181,6 @@ kbd {
       const who = anon ? 'Convidado' : (nick ? `${nick} (${cloud.user.email || ''})` : (cloud.user.email || 'Conta'));
       $('#acc-kind').textContent = anon ? 'Sessão de convidado (nuvem)' : 'Conta conectada';
       $('#acc-who').textContent = who;
-      $('#acc-avatar').textContent = (anon ? 'C' : (nick || who)[0] || '?').toUpperCase();
     } else if (state.localAccount) {
       const kindMap = {
         signup: 'Conta criada neste navegador',
@@ -2191,10 +2192,8 @@ kbd {
         : state.localAccount.label;
       $('#acc-kind').textContent = kindMap[state.localAccount.kind] || 'Perfil local';
       $('#acc-who').textContent = who;
-      $('#acc-avatar').textContent = (who[0] || 'M').toUpperCase();
     }
     renderProfilePhotoUI();
-    renderSteamFriends();
   }
 
   function openAccount() {
@@ -2350,7 +2349,7 @@ kbd {
     specs.className = 'back-specs';
     specs.innerHTML = `
       <div class="back-spec"><b>Jogadores</b>${g.jogadores || '1 Jogador'}</div>
-      <div class="back-spec"><b>Engine</b>${g.core.toUpperCase()}</div>
+      <div class="back-spec"><b>Engine</b>${String(g.core || g.runner || '').toUpperCase()}</div>
     `;
 
     body.append(title, desc, specs);
@@ -2364,7 +2363,7 @@ kbd {
     playBtn.type = 'button';
     playBtn.tabIndex = -1;
     playBtn.className = 'back-launch';
-    playBtn.textContent = 'Jogar';
+    playBtn.textContent = g.runner === 'external' ? 'Abrir' : 'Jogar';
     playBtn.addEventListener('click', (e) => { e.stopPropagation(); openGame(g); });
 
     foot.append(code, playBtn);
@@ -2735,6 +2734,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   }
 
   function cycleFocusInContainer(container, delta) {
+    if (!container) return;
     const focusables = [...container.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled])')];
     if (!focusables.length) return;
     const idx = focusables.indexOf(document.activeElement);
@@ -2754,6 +2754,11 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     if (!accountEl.hidden) {
       if (dir === 'down' || dir === 'right') cycleFocusInContainer($('.dialog', accountEl), 1);
       if (dir === 'up' || dir === 'left') cycleFocusInContainer($('.dialog', accountEl), -1);
+      return;
+    }
+    if (!photoModalEl.hidden) {
+      if (dir === 'down' || dir === 'right') cycleFocusInContainer($('.dialog', photoModalEl), 1);
+      if (dir === 'up' || dir === 'left') cycleFocusInContainer($('.dialog', photoModalEl), -1);
       return;
     }
     if (!player.hidden) return;
@@ -2779,7 +2784,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
 
   function handleGamepadButton(btnIdx) {
     if (btnIdx === 9) {
-      if (player.hidden && accountEl.hidden) {
+      if (player.hidden && accountEl.hidden && photoModalEl.hidden) {
         if (settingsEl.hidden) openSettings();
         else closeSettings();
       }
@@ -2794,6 +2799,12 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
 
     if (!accountEl.hidden) {
       if (btnIdx === 1) closeAccount();
+      else if (btnIdx === 0 && document.activeElement && document.activeElement.click) document.activeElement.click();
+      return;
+    }
+
+    if (!photoModalEl.hidden) {
+      if (btnIdx === 1) closePhotoModal();
       else if (btnIdx === 0 && document.activeElement && document.activeElement.click) document.activeElement.click();
       return;
     }
@@ -2870,7 +2881,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
 
   window.addEventListener('gamepadconnected', () => {
     updatePadStatusUI();
-    if (player.hidden && accountEl.hidden && settingsEl.hidden && !grid.querySelector('.card:focus')) {
+    if (player.hidden && accountEl.hidden && settingsEl.hidden && photoModalEl.hidden && !grid.querySelector('.card:focus')) {
       const first = grid.querySelector('.card');
       if (first) first.focus();
     }
@@ -2913,6 +2924,8 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     state.localAccount = null;
     state.customCovers = {};
     state.customBacks = {};
+    state.profilePhoto = '';
+    state.lang = 'pt-BR';
     state.flippedIds.clear();
     state.cfg = Object.assign({}, DEFAULT_CFG);
     try {
@@ -2922,11 +2935,14 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
       localStorage.removeItem(LS_CHATS);
       localStorage.removeItem(LS_LOCAL_ACC);
       localStorage.removeItem(LS_PRESENCE);
+      localStorage.removeItem(LS_PHOTO);
+      localStorage.removeItem(LS_LANG);
       localStorage.removeItem(LS_CFG);
       localStorage.removeItem(LS_COVERS);
       localStorage.removeItem(LS_BACKS);
     } catch {}
     applySettings();
+    applyLanguage();
     setSync('local');
     renderAccount();
     renderChat();
@@ -2986,6 +3002,10 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
       if (e.key === 'Escape') closeAccount();
       return;
     }
+    if (!photoModalEl.hidden) {
+      if (e.key === 'Escape') closePhotoModal();
+      return;
+    }
     if (!player.hidden) {
       if (e.key === 'Escape' && !document.fullscreenElement) closeGame();
       return;
@@ -3026,9 +3046,10 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   applySettings();
   applyLanguage();
   renderProfilePhotoUI();
+
   $('#btn-photo').addEventListener('click', openPhotoModal);
   $('#photo-close').addEventListener('click', closePhotoModal);
-  $('#photo-modal').addEventListener('click', (e) => { if (e.target === $('#photo-modal')) closePhotoModal(); });
+  photoModalEl.addEventListener('click', (e) => { if (e.target === photoModalEl) closePhotoModal(); });
   $('#btn-choose-photo').addEventListener('click', () => $('#profile-photo-file').click());
   $('#profile-photo-file').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
@@ -3068,21 +3089,14 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     if (cloud.client && cloud.user && nick) {
       try { await cloud.client.auth.updateUser({ data: { nickname: nick } }); } catch {}
     }
-    renderProfilePhotoUI();
     renderAccount();
     renderSteamFriends();
     if (cloud.client && cloud.user) {
-      try {
-        await cloud.client.from(CONFIG.TABLE).upsert({
-          user_id: cloud.user.id,
-          nome_exibicao: nick || getMyDisplayName(),
-          avatar_url: state.profilePhoto || null,
-          atualizado_em: new Date().toISOString()
-        }, { onConflict: 'user_id' });
-      } catch {}
+      await pushNow();
     }
     closePhotoModal();
   });
+
   if ($('#cfg-lang')) {
     $('#cfg-lang').addEventListener('change', (e) => {
       state.lang = I18N[e.target.value] ? e.target.value : 'pt-BR';
