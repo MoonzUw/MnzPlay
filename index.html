@@ -375,9 +375,11 @@ body.no-anim .cover-face img { transition: none; }
   padding: 14px 16px; border-bottom: 1px solid var(--border);
   background: rgba(14, 8, 23, .75);
 }
-.steam-chat-who strong { display: block; font-size: .96rem; }
+.steam-chat-who { min-width: 0; flex: 1; }
+.steam-chat-who strong { display: block; font-size: .96rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .steam-chat-who small { display: block; font-size: .76rem; color: var(--muted); margin-top: 2px; }
 .steam-chat-who small.ingame { color: var(--ok); font-weight: 700; }
+.steam-chat-head-actions { display: flex; gap: 6px; flex: none; }
 .steam-chat-log {
   flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
   background: rgba(7, 4, 12, .45);
@@ -385,7 +387,7 @@ body.no-anim .cover-face img { transition: none; }
 .chat-empty { margin: auto; text-align: center; color: var(--muted); font-size: .86rem; max-width: 240px; line-height: 1.45; }
 .chat-msg {
   max-width: 82%; padding: 9px 12px; border-radius: 12px; font-size: .88rem; line-height: 1.4;
-  background: var(--bg-2); border: 1px solid var(--border);
+  background: var(--bg-2); border: 1px solid var(--border); word-break: break-word;
 }
 .chat-msg.me {
   align-self: flex-end;
@@ -670,7 +672,10 @@ kbd {
             <strong id="chat-friend-name">Selecione um amigo</strong>
             <small id="chat-friend-status">Clique em um amigo para abrir o chat</small>
           </div>
-          <button class="btn btn-sm" type="button" id="btn-chat-clear" disabled title="Limpar conversa">Limpar</button>
+          <div class="steam-chat-head-actions">
+            <button class="btn btn-sm" type="button" id="btn-chat-sync" disabled title="Buscar mensagens novas">↻</button>
+            <button class="btn btn-sm" type="button" id="btn-chat-clear" disabled title="Limpar conversa">Limpar</button>
+          </div>
         </div>
         <div class="steam-chat-log" id="chat-log">
           <div class="chat-empty" id="chat-empty">Escolha um amigo na lista ao lado para conversar ou ver o que ele está jogando.</div>
@@ -902,7 +907,7 @@ kbd {
   };
   const CLOUD_ON = Boolean(CONFIG.SUPABASE_URL.trim() && CONFIG.SUPABASE_ANON_KEY.trim());
   const DEV_NICKS = ['moonzuw'];
-  const ONLINE_WINDOW_MS = 3 * 60 * 1000;
+  const ONLINE_WINDOW_MS = 5 * 60 * 1000;
 
   const GAMES = [
     { id: 'n64-001', titulo: 'Super Mario 64', sistema: 'N64', runner: 'ejs', core: 'n64', arquivo: 'roms/n64/super-mario-64.z64', romBase64: '', capa: 'https://coverproject.sfo2.cdn.digitaloceanspaces.com/nintendo_64/nintendo_64.supermario64_US.16220529131055272362_thumb.jpg', verso: '', ano: 1996, jogadores: '1 Jogador', sinopse: 'Explore o castelo da Princesa Peach, entre nos quadros e colete 120 estrelas em 3D.' },
@@ -1525,7 +1530,7 @@ kbd {
           const activeNow = isRecentlyActive(match.atualizado_em);
           const resolved = activeNow ? resolveGameLabel(match.jogo_atual || '') : '';
           const nextPres = f.presence === 'offline' ? 'offline' : (activeNow ? 'online' : 'offline');
-          if (resolved !== (f.playing || '') || nextPres !== f.presence || (match.user_id && match.user_id !== f.userId)) {
+          if (resolved !== (f.playing || '') || nextPres !== f.presence || (match.user_id && match.user_id !== f.userId) || (match.atualizado_em || '') !== (f.updatedAt || '')) {
             changed = true;
             return Object.assign({}, f, {
               userId: match.user_id || f.userId || '',
@@ -1545,6 +1550,7 @@ kbd {
       });
       if (changed) persistLocal();
       renderSteamFriends();
+      renderChat();
       await pullMessagesFromCloud(state.selectedFriend || null);
       if (!silent) setSteamMsg('Status e mensagens sincronizados com a nuvem.', 'ok');
     } catch {
@@ -2148,6 +2154,7 @@ kbd {
     const inputEl = $('#chat-input');
     const sendBtn = $('#btn-chat-send');
     const clearBtn = $('#btn-chat-clear');
+    const syncBtn = $('#btn-chat-sync');
 
     if (!friend) {
       $('#chat-friend-name').textContent = 'Selecione um amigo';
@@ -2156,6 +2163,7 @@ kbd {
       inputEl.disabled = true;
       sendBtn.disabled = true;
       clearBtn.disabled = true;
+      syncBtn.disabled = true;
       logEl.innerHTML = '';
       emptyChat.textContent = 'Escolha um amigo na lista ao lado para conversar ou ver o que ele está jogando.';
       logEl.appendChild(emptyChat);
@@ -2179,6 +2187,7 @@ kbd {
     inputEl.disabled = false;
     sendBtn.disabled = false;
     clearBtn.disabled = false;
+    syncBtn.disabled = !(cloud.ready && cloud.user);
 
     const key = norm(friend.tag);
     const msgs = Array.isArray(state.chats[key]) ? state.chats[key] : [];
@@ -2266,6 +2275,8 @@ kbd {
         }
       }
       setSync('saved');
+    } else {
+      setSteamMsg('Você está em Modo local: entre na conta da nuvem para enviar mensagens a outros dispositivos.', 'err');
     }
   }
 
@@ -3078,6 +3089,13 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     updatePadStatusUI();
   });
 
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && cloud.client && cloud.user) {
+      if (state.presence !== 'offline') pushNow();
+      refreshFriendsPresence(true);
+    }
+  });
+
   /* ---------- Eventos ---------- */
   document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => {
     state.tab = btn.dataset.tab;
@@ -3166,8 +3184,8 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   });
   $('#btn-steam-refresh').addEventListener('click', async () => {
     setSteamMsg('');
-    await refreshFriendsPresence(false);
     if (cloud.ready && cloud.user) await pushNow();
+    await refreshFriendsPresence(false);
   });
   $('#steam-filter').addEventListener('input', (e) => {
     state.friendFilter = e.target.value;
@@ -3180,6 +3198,12 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   $('#chat-form').addEventListener('submit', (e) => {
     e.preventDefault();
     sendChatMessage($('#chat-input').value);
+  });
+  $('#btn-chat-sync').addEventListener('click', async () => {
+    if (cloud.ready && cloud.user) {
+      await pullMessagesFromCloud(state.selectedFriend || null);
+      setSteamMsg('Mensagens atualizadas.', 'ok');
+    }
   });
   $('#btn-chat-clear').addEventListener('click', clearSelectedChat);
 
