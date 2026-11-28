@@ -271,6 +271,14 @@ body.no-anim .cover-face img { transition: none; }
 .empty strong { display: block; color: var(--text); font-size: 1.2rem; margin-bottom: 6px; }
 
 /* Aba Amigos estilo Steam */
+.auth-gate {
+  max-width: 520px; margin: 28px auto; text-align: center; padding: 36px 28px; border-radius: 20px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--border); box-shadow: 0 12px 36px rgba(0, 0, 0, .35);
+}
+.auth-gate h2 { font-size: 1.45rem; margin-bottom: 10px; }
+.auth-gate p { color: var(--muted); line-height: 1.55; margin-bottom: 20px; font-size: .94rem; }
+
 .steam-layout {
   max-width: 1120px;
   margin: 0 auto;
@@ -604,7 +612,7 @@ kbd {
       <span id="top-avatar-name">Perfil</span>
     </button>
     <button class="sync" id="btn-account" data-sync="local" aria-haspopup="dialog" title="Conta e sincronização">
-      <span class="dot"></span><span id="sync-label">Modo local</span>
+      <span class="dot"></span><span id="sync-label">Desconectado</span>
     </button>
     <span class="clock" id="clock">--:--</span>
   </div>
@@ -631,7 +639,14 @@ kbd {
 
   <!-- Aba Amigos estilo Steam -->
   <section id="view-friends" hidden>
-    <div class="steam-layout">
+    <div class="auth-gate" id="friends-auth-gate" hidden>
+      <span class="soon-badge">Conta necessária</span>
+      <h2>Entre na sua conta para usar Amigos e Chat</h2>
+      <p>O catálogo de jogos funciona livremente sem login, mas a lista de amigos, o status Online/Offline e as mensagens em tempo real exigem uma conta autenticada no Supabase.</p>
+      <button class="btn primary" type="button" id="btn-friends-login">Entrar / Criar conta</button>
+    </div>
+
+    <div class="steam-layout" id="friends-content">
       <div class="steam-panel">
         <div class="steam-me">
           <div class="steam-me-left">
@@ -640,7 +655,7 @@ kbd {
               <span class="steam-state-dot online" id="steam-my-dot" aria-hidden="true"></span>
             </div>
             <div class="steam-me-info">
-              <h2 id="steam-my-name">Jogador Local</h2>
+              <h2 id="steam-my-name">Jogador</h2>
               <div class="steam-me-sub online" id="steam-my-sub">Online</div>
             </div>
           </div>
@@ -823,7 +838,7 @@ kbd {
     </div>
 
     <div class="notice" id="acc-notice" hidden>
-      Falta preencher <code>SUPABASE_URL</code> em <code>CONFIG</code> para sincronizar com o Supabase. Contas locais e amigos continuam salvos neste navegador (<code>localStorage</code>).
+      Falta preencher <code>SUPABASE_URL</code> e <code>SUPABASE_ANON_KEY</code> em <code>CONFIG</code> para autenticar na nuvem.
     </div>
 
     <div id="acc-guest">
@@ -848,7 +863,7 @@ kbd {
       </form>
 
       <div class="sep">ou</div>
-      <button class="btn" type="button" id="btn-anon" style="width:100%">Entrar como convidado / perfil local</button>
+      <button class="btn" type="button" id="btn-anon" style="width:100%">Entrar como convidado na nuvem</button>
     </div>
 
     <div id="acc-user" hidden>
@@ -860,7 +875,7 @@ kbd {
           <small id="acc-playing">Jogando agora: nenhum</small>
         </div>
       </div>
-      <div class="sync-line" id="acc-sync" data-sync="local"><span class="dot"></span><span id="acc-sync-label">Modo local</span></div>
+      <div class="sync-line" id="acc-sync" data-sync="local"><span class="dot"></span><span id="acc-sync-label">Desconectado</span></div>
       <div class="row">
         <button class="btn" type="button" id="btn-syncnow">Sincronizar agora</button>
         <button class="btn danger" type="button" id="btn-logout">Sair</button>
@@ -907,7 +922,7 @@ kbd {
   };
   const CLOUD_ON = Boolean(CONFIG.SUPABASE_URL.trim() && CONFIG.SUPABASE_ANON_KEY.trim());
   const DEV_NICKS = ['moonzuw'];
-  const ONLINE_WINDOW_MS = 5 * 60 * 1000;
+  const ONLINE_WINDOW_MS = 15 * 60 * 1000;
 
   const GAMES = [
     { id: 'n64-001', titulo: 'Super Mario 64', sistema: 'N64', runner: 'ejs', core: 'n64', arquivo: 'roms/n64/super-mario-64.z64', romBase64: '', capa: 'https://coverproject.sfo2.cdn.digitaloceanspaces.com/nintendo_64/nintendo_64.supermario64_US.16220529131055272362_thumb.jpg', verso: '', ano: 1996, jogadores: '1 Jogador', sinopse: 'Explore o castelo da Princesa Peach, entre nos quadros e colete 120 estrelas em 3D.' },
@@ -937,7 +952,6 @@ kbd {
   const LS_BACKS = 'mnzplay:versos';
   const LS_FRIENDS = 'mnzplay:amigos';
   const LS_CHATS = 'mnzplay:chats';
-  const LS_LOCAL_ACC = 'mnzplay:conta_local';
   const LS_PRESENCE = 'mnzplay:presenca';
   const LS_PHOTO = 'mnzplay:foto_perfil';
   const LS_LANG = 'mnzplay:idioma';
@@ -1109,13 +1123,6 @@ kbd {
       if (l.startsWith('es')) return 'es';
       if (l.startsWith('en')) return 'en';
     }
-    const tz = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').toLowerCase();
-    if (tz.includes('america/sao_paulo') || tz.includes('america/fortaleza') || tz.includes('america/recife') || tz.includes('america/belem') || tz.includes('america/manaus')) {
-      return 'pt-BR';
-    }
-    if (tz.startsWith('america/') || tz.includes('europe/madrid')) {
-      return 'es';
-    }
     return 'pt-BR';
   }
 
@@ -1130,10 +1137,6 @@ kbd {
       ? localStorage.getItem(LS_PRESENCE)
       : 'online',
     nowPlaying: '',
-    localAccount: (() => {
-      const raw = loadObj(LS_LOCAL_ACC);
-      return raw && raw.active ? raw : null;
-    })(),
     authMode: 'login',
     customCovers: loadObj(LS_COVERS),
     customBacks: loadObj(LS_BACKS),
@@ -1292,36 +1295,30 @@ kbd {
   }
 
   /* =====================================================================
-   * CONTA, AMIGOS ESTILO STEAM, CHAT SALVO NA NUVEM E SUPABASE
+   * AUTENTICAÇÃO SUPABASE, AMIGOS ESTILO STEAM E CHAT NA NUVEM
    * ===================================================================== */
-  const SYNC_LABELS = { local: 'Modo local', syncing: 'Sincronizando...', saved: 'Salvo na nuvem', error: 'Erro de sincronização' };
+  const SYNC_LABELS = { local: 'Desconectado', syncing: 'Sincronizando...', saved: 'Salvo na nuvem', error: 'Erro de sincronização' };
   const cloud = { client: null, user: null, status: 'local', timer: null, heartbeatTimer: null, ready: false, channel: null, msgChannel: null };
 
-  function hasActiveSession() {
-    return Boolean(cloud.user || (state.localAccount && state.localAccount.active));
+  function isCloudAuthenticated() {
+    return Boolean(cloud.ready && cloud.client && cloud.user);
   }
 
   function getMyDisplayName() {
-    if (cloud.user) {
-      if (cloud.user.is_anonymous) return 'Convidado';
-      const nick = cloud.user.user_metadata && cloud.user.user_metadata.nickname;
-      return nick || cloud.user.email || 'Conta MnzPlay';
-    }
-    if (state.localAccount && state.localAccount.active) {
-      return state.localAccount.label || 'Jogador Local';
-    }
-    return 'Jogador Local';
+    if (!cloud.user) return 'Jogador';
+    if (cloud.user.is_anonymous) return 'Convidado';
+    const nick = cloud.user.user_metadata && cloud.user.user_metadata.nickname;
+    return nick || cloud.user.email || 'Conta MnzPlay';
   }
 
   function getMyAliases() {
     const aliases = new Set();
-    if (cloud.user && cloud.user.id) aliases.add(norm(cloud.user.id));
-    if (cloud.user && cloud.user.email) aliases.add(norm(cloud.user.email));
-    if (cloud.user && cloud.user.user_metadata && cloud.user.user_metadata.nickname) {
+    if (!cloud.user) return aliases;
+    if (cloud.user.id) aliases.add(norm(cloud.user.id));
+    if (cloud.user.email) aliases.add(norm(cloud.user.email));
+    if (cloud.user.user_metadata && cloud.user.user_metadata.nickname) {
       aliases.add(norm(cloud.user.user_metadata.nickname));
     }
-    if (state.localAccount && state.localAccount.nick) aliases.add(norm(state.localAccount.nick));
-    if (state.localAccount && state.localAccount.email) aliases.add(norm(state.localAccount.email));
     aliases.add(norm(getMyDisplayName()));
     aliases.delete('');
     return aliases;
@@ -1330,7 +1327,6 @@ kbd {
   function isDevUser(name) {
     const clean = norm(name || '').trim();
     if (DEV_NICKS.includes(clean)) return true;
-    if (state.localAccount && DEV_NICKS.includes(norm(state.localAccount.nick || ''))) return true;
     if (cloud.user && cloud.user.email && norm(cloud.user.email).startsWith('moonzuw@')) return true;
     return false;
   }
@@ -1415,7 +1411,7 @@ kbd {
         cloud.msgChannel = cloud.client
           .channel('mnzplay-mensagens-live')
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: CONFIG.MSG_TABLE }, () => {
-            if (cloud.user) pullMessagesFromCloud(state.selectedFriend || null);
+            if (isCloudAuthenticated()) pullMessagesFromCloud(state.selectedFriend || null);
           })
           .subscribe();
       } catch {}
@@ -1425,10 +1421,12 @@ kbd {
   function startHeartbeat() {
     if (cloud.heartbeatTimer) clearInterval(cloud.heartbeatTimer);
     cloud.heartbeatTimer = setInterval(() => {
-      if (cloud.client && cloud.user && state.presence !== 'offline') {
+      if (isCloudAuthenticated() && state.presence !== 'offline') {
         pushNow();
       }
-      refreshFriendsPresence(true);
+      if (isCloudAuthenticated()) {
+        refreshFriendsPresence(true);
+      }
     }, 60000);
   }
 
@@ -1455,7 +1453,7 @@ kbd {
   }
 
   async function pullMessagesFromCloud(friendTag) {
-    if (!cloud.client || !cloud.user) return;
+    if (!isCloudAuthenticated()) return;
     try {
       const myAliases = [...getMyAliases()];
       const filters = [`remetente_id.eq.${cloud.user.id}`];
@@ -1502,7 +1500,7 @@ kbd {
   }
 
   async function refreshFriendsPresence(silent) {
-    if (!cloud.client) {
+    if (!isCloudAuthenticated()) {
       renderSteamFriends();
       return;
     }
@@ -1639,9 +1637,7 @@ kbd {
   let draftPhoto = '';
   function openPhotoModal() {
     draftPhoto = state.profilePhoto || '';
-    const currentNick = (cloud.user && cloud.user.user_metadata && cloud.user.user_metadata.nickname)
-      || (state.localAccount && state.localAccount.nick)
-      || '';
+    const currentNick = (cloud.user && cloud.user.user_metadata && cloud.user.user_metadata.nickname) || '';
     $('#photo-nick-input').value = currentNick;
     $('#photo-msg').textContent = '';
     $('#photo-msg').className = 'msg';
@@ -1682,7 +1678,10 @@ kbd {
   async function initCloud() {
     renderAccount();
     renderSteamFriends();
-    if (!CLOUD_ON) return;
+    if (!CLOUD_ON) {
+      setSync('local');
+      return;
+    }
     try {
       await loadSdk();
       cloud.client = window.supabase.createClient(CONFIG.SUPABASE_URL.trim(), CONFIG.SUPABASE_ANON_KEY.trim());
@@ -1692,12 +1691,13 @@ kbd {
       startHeartbeat();
       const { data, error } = await cloud.client.auth.getSession();
       if (error) throw error;
-      cloud.client.auth.onAuthStateChange((evt) => {
-        if (evt === 'SIGNED_OUT' && cloud.user) {
+      cloud.client.auth.onAuthStateChange((evt, session) => {
+        if (evt === 'SIGNED_OUT' || !session) {
           cloud.user = null;
           setSync('local');
           renderAccount();
           renderSteamFriends();
+          renderChat();
         }
       });
       if (data.session) await onLogin(data.session.user, false);
@@ -1709,8 +1709,6 @@ kbd {
 
   async function onLogin(user, merge) {
     cloud.user = user;
-    state.localAccount = null;
-    save(LS_LOCAL_ACC, null);
     setSync('syncing');
     renderAccount();
 
@@ -1748,7 +1746,7 @@ kbd {
 
   async function pushNow() {
     persistLocal();
-    if (!cloud.client || !cloud.user) {
+    if (!isCloudAuthenticated()) {
       setSync('local');
       return;
     }
@@ -1781,7 +1779,7 @@ kbd {
 
   function schedulePush() {
     persistLocal();
-    if (!cloud.client || !cloud.user) return;
+    if (!isCloudAuthenticated()) return;
     setSync('syncing');
     clearTimeout(cloud.timer);
     cloud.timer = setTimeout(pushNow, 600);
@@ -1800,22 +1798,6 @@ kbd {
     setMsg('');
   }
 
-  function activateLocalSession(kind, nick, email) {
-    const cleanNick = (nick || '').trim().slice(0, 24);
-    const cleanEmail = (email || '').trim().slice(0, 80);
-    state.localAccount = {
-      active: true,
-      kind,
-      nick: cleanNick,
-      email: cleanEmail,
-      label: cleanNick || cleanEmail || (kind === 'signup' ? 'Conta local' : 'Convidado')
-    };
-    save(LS_LOCAL_ACC, state.localAccount);
-    setSync('local');
-    renderAccount();
-    renderSteamFriends();
-  }
-
   async function submitAuthForm(e) {
     e.preventDefault();
     const isSignup = state.authMode === 'signup';
@@ -1829,15 +1811,8 @@ kbd {
       return;
     }
 
-    if (!cloud.ready) {
-      activateLocalSession(isSignup ? 'signup' : 'login', nick, email);
-      $('#acc-pass').value = '';
-      setMsg(
-        isSignup
-          ? `Conta local "${state.localAccount.label}" criada neste navegador.`
-          : `Sessão local "${state.localAccount.label}" iniciada.`,
-        'ok'
-      );
+    if (!cloud.ready || !cloud.client) {
+      setMsg('Conexão com o Supabase indisponível. Verifique a configuração da nuvem.', 'err');
       return;
     }
 
@@ -1874,22 +1849,20 @@ kbd {
   }
 
   async function enterGuest() {
-    if (!cloud.ready) {
-      const nick = ($('#acc-nick').value || '').trim();
-      activateLocalSession('guest', nick, '');
-      setMsg('Entrou como convidado neste navegador.', 'ok');
+    if (!cloud.ready || !cloud.client) {
+      setMsg('Conexão com o Supabase indisponível para entrar como convidado.', 'err');
       return;
     }
     const btns = accountEl.querySelectorAll('button');
     btns.forEach(b => b.disabled = true);
-    setMsg('Entrando como convidado…');
+    setMsg('Entrando como convidado na nuvem…');
     try {
       const res = await cloud.client.auth.signInAnonymously();
       if (res.error) throw res.error;
       await onLogin(res.data.user, true);
       setMsg('');
     } catch (err) {
-      setMsg(err.message || 'Não foi possível entrar como convidado.', 'err');
+      setMsg(err.message || 'Não foi possível entrar como convidado. Verifique se o login anônimo está ativado no Supabase.', 'err');
     } finally {
       btns.forEach(b => b.disabled = false);
       renderAccount();
@@ -1899,19 +1872,32 @@ kbd {
   async function logout() {
     if (cloud.client && cloud.user) {
       clearTimeout(cloud.timer);
+      try {
+        await cloud.client
+          .from(CONFIG.TABLE)
+          .upsert({
+            user_id: cloud.user.id,
+            jogo_atual: null,
+            atualizado_em: new Date(Date.now() - ONLINE_WINDOW_MS - 1000).toISOString()
+          }, { onConflict: 'user_id' });
+      } catch {}
       try { await cloud.client.auth.signOut(); } catch {}
       cloud.user = null;
     }
-    state.localAccount = null;
-    save(LS_LOCAL_ACC, null);
+    state.nowPlaying = '';
     setSync('local');
-    setMsg('Você saiu da conta. Seus dados locais continuam salvos.', 'ok');
+    setMsg('Você saiu da conta.', 'ok');
     renderAccount();
     renderSteamFriends();
+    renderChat();
   }
 
   /* ---------- Amigos + Chat salvo na nuvem ---------- */
   function addFriend(rawTag) {
+    if (!isCloudAuthenticated()) {
+      openAccount();
+      return;
+    }
     const tag = (rawTag || '').trim().replace(/\s+/g, ' ').slice(0, 64);
     if (!tag) {
       setSteamMsg('Digite o nickname, e-mail ou UUID do amigo.', 'err');
@@ -1941,14 +1927,13 @@ kbd {
     schedulePush();
     renderSteamFriends();
     renderChat();
-    if (cloud.ready) {
-      pullMessagesFromCloud(tag);
-      refreshFriendsPresence(true);
-    }
+    pullMessagesFromCloud(tag);
+    refreshFriendsPresence(true);
     setSteamMsg(`"${tag}" adicionado à lista de amigos.`, 'ok');
   }
 
   function editFriendGame(tag) {
+    if (!isCloudAuthenticated()) return;
     const friend = state.friends.find(f => norm(f.tag) === norm(tag));
     if (!friend) return;
     const sugestoes = GAMES.map(g => g.titulo).join(', ');
@@ -1973,6 +1958,7 @@ kbd {
   }
 
   function removeFriend(tag) {
+    if (!isCloudAuthenticated()) return;
     state.friends = state.friends.filter(f => norm(f.tag) !== norm(tag));
     if (state.selectedFriend && norm(state.selectedFriend) === norm(tag)) {
       state.selectedFriend = state.friends[0] ? state.friends[0].tag : null;
@@ -1988,7 +1974,7 @@ kbd {
     state.selectedFriend = tag;
     renderSteamFriends();
     renderChat();
-    if (cloud.ready && cloud.user) pullMessagesFromCloud(tag);
+    if (isCloudAuthenticated()) pullMessagesFromCloud(tag);
     $('#chat-input').focus();
   }
 
@@ -2001,6 +1987,15 @@ kbd {
 
   function renderSteamFriends() {
     renderProfilePhotoUI();
+    const authed = isCloudAuthenticated();
+    $('#friends-auth-gate').hidden = authed;
+    $('#friends-content').hidden = !authed;
+    if (!authed) {
+      counter.textContent = 'Conta necessária';
+      return;
+    }
+
+    counter.textContent = `${state.friends.length} ${state.friends.length === 1 ? 'amigo' : 'amigos'}`;
     const myName = getMyDisplayName();
     setNameWithDevBadge($('#steam-my-name'), myName);
     $('#steam-my-presence').value = state.presence;
@@ -2145,7 +2140,7 @@ kbd {
   }
 
   function renderChat() {
-    const friend = state.selectedFriend
+    const friend = (isCloudAuthenticated() && state.selectedFriend)
       ? state.friends.find(f => norm(f.tag) === norm(state.selectedFriend))
       : null;
 
@@ -2187,7 +2182,7 @@ kbd {
     inputEl.disabled = false;
     sendBtn.disabled = false;
     clearBtn.disabled = false;
-    syncBtn.disabled = !(cloud.ready && cloud.user);
+    syncBtn.disabled = false;
 
     const key = norm(friend.tag);
     const msgs = Array.isArray(state.chats[key]) ? state.chats[key] : [];
@@ -2206,8 +2201,7 @@ kbd {
       const body = document.createElement('div');
       body.textContent = m.text;
       const tm = document.createElement('time');
-      const syncTag = (cloud.ready && cloud.user) ? (m.cloudSaved ? ' • nuvem' : ' • local') : '';
-      tm.textContent = `${m.time || ''}${syncTag}`;
+      tm.textContent = `${m.time || ''}${m.cloudSaved ? ' • nuvem' : ''}`;
       div.append(body, tm);
       frag.appendChild(div);
     });
@@ -2216,6 +2210,10 @@ kbd {
   }
 
   async function sendChatMessage(rawText) {
+    if (!isCloudAuthenticated()) {
+      openAccount();
+      return;
+    }
     const friend = state.selectedFriend
       ? state.friends.find(f => norm(f.tag) === norm(state.selectedFriend))
       : null;
@@ -2226,7 +2224,7 @@ kbd {
     const key = norm(friend.tag);
     if (!Array.isArray(state.chats[key])) state.chats[key] = [];
     const nowIso = new Date().toISOString();
-    const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const localId = `cloud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const msgObj = normalizeMsg({
       id: localId,
       fromMe: true,
@@ -2241,43 +2239,39 @@ kbd {
     persistLocal();
     renderChat();
 
-    if (cloud.client && cloud.user) {
-      setSync('syncing');
-      const destKey = friend.userId && norm(friend.tag) === norm(friend.userId) ? norm(friend.userId) : key;
-      const { data, error } = await cloud.client
-        .from(CONFIG.MSG_TABLE)
-        .insert({
-          remetente_id: cloud.user.id,
-          remetente_nome: getMyDisplayName(),
-          remetente_chave: norm(getMyDisplayName()),
-          destinatario_chave: destKey,
-          texto: text,
-          criado_em: nowIso
-        })
-        .select('id, criado_em')
-        .maybeSingle();
+    setSync('syncing');
+    const destKey = friend.userId && norm(friend.tag) === norm(friend.userId) ? norm(friend.userId) : key;
+    const { data, error } = await cloud.client
+      .from(CONFIG.MSG_TABLE)
+      .insert({
+        remetente_id: cloud.user.id,
+        remetente_nome: getMyDisplayName(),
+        remetente_chave: norm(getMyDisplayName()),
+        destinatario_chave: destKey,
+        texto: text,
+        criado_em: nowIso
+      })
+      .select('id, criado_em')
+      .maybeSingle();
 
-      if (error) {
-        setSync('error');
-        setSteamMsg('Mensagem salva no navegador, mas falhou ao enviar para a nuvem: ' + error.message, 'err');
-        return;
-      }
-
-      if (data && data.id) {
-        const target = (state.chats[key] || []).find(item => item.id === localId);
-        if (target) {
-          target.id = data.id;
-          target.createdAt = data.criado_em || nowIso;
-          target.time = formatTimePt(target.createdAt);
-          target.cloudSaved = true;
-          persistLocal();
-          renderChat();
-        }
-      }
-      setSync('saved');
-    } else {
-      setSteamMsg('Você está em Modo local: entre na conta da nuvem para enviar mensagens a outros dispositivos.', 'err');
+    if (error) {
+      setSync('error');
+      setSteamMsg('Falhou ao enviar mensagem para a nuvem: ' + error.message, 'err');
+      return;
     }
+
+    if (data && data.id) {
+      const target = (state.chats[key] || []).find(item => item.id === localId);
+      if (target) {
+        target.id = data.id;
+        target.createdAt = data.criado_em || nowIso;
+        target.time = formatTimePt(target.createdAt);
+        target.cloudSaved = true;
+        persistLocal();
+        renderChat();
+      }
+    }
+    setSync('saved');
   }
 
   async function clearSelectedChat() {
@@ -2287,7 +2281,7 @@ kbd {
     persistLocal();
     renderChat();
 
-    if (cloud.client && cloud.user) {
+    if (isCloudAuthenticated()) {
       setSync('syncing');
       const { error } = await cloud.client
         .from(CONFIG.MSG_TABLE)
@@ -2296,7 +2290,7 @@ kbd {
         .eq('destinatario_chave', key);
       if (error) {
         setSync('error');
-        setSteamMsg('Conversa limpa localmente, mas houve erro ao apagar na nuvem: ' + error.message, 'err');
+        setSteamMsg('Erro ao apagar conversa na nuvem: ' + error.message, 'err');
         return;
       }
       setSync('saved');
@@ -2307,31 +2301,20 @@ kbd {
   let lastFocus = null;
 
   function renderAccount() {
-    const logged = hasActiveSession();
+    const logged = isCloudAuthenticated();
     $('#acc-notice').hidden = CLOUD_ON;
     $('#acc-guest').hidden = logged;
     $('#acc-user').hidden = !logged;
-    $('#btn-syncnow').disabled = !(cloud.ready && cloud.user);
+    $('#btn-syncnow').disabled = !logged;
     $('#acc-playing').textContent = state.nowPlaying
       ? `Jogando agora: ${state.nowPlaying}`
       : 'Jogando agora: nenhum';
 
-    if (cloud.user) {
+    if (logged && cloud.user) {
       const anon = Boolean(cloud.user.is_anonymous);
       const nick = cloud.user.user_metadata && cloud.user.user_metadata.nickname;
       const who = anon ? 'Convidado' : (nick ? `${nick} (${cloud.user.email || ''})` : (cloud.user.email || 'Conta'));
       $('#acc-kind').textContent = anon ? 'Sessão de convidado (nuvem)' : 'Conta conectada';
-      $('#acc-who').textContent = who;
-    } else if (state.localAccount) {
-      const kindMap = {
-        signup: 'Conta criada neste navegador',
-        login: 'Sessão local',
-        guest: 'Convidado local'
-      };
-      const who = state.localAccount.nick && state.localAccount.email
-        ? `${state.localAccount.nick} (${state.localAccount.email})`
-        : state.localAccount.label;
-      $('#acc-kind').textContent = kindMap[state.localAccount.kind] || 'Perfil local';
       $('#acc-who').textContent = who;
     }
     renderProfilePhotoUI();
@@ -2341,8 +2324,8 @@ kbd {
     lastFocus = document.activeElement;
     renderAccount();
     accountEl.hidden = false;
-    const first = hasActiveSession()
-      ? ($('#btn-syncnow').disabled ? $('#btn-logout') : $('#btn-syncnow'))
+    const first = isCloudAuthenticated()
+      ? $('#btn-syncnow')
       : (state.authMode === 'signup' ? $('#acc-nick') : $('#acc-email'));
     if (first && first.focus) first.focus();
   }
@@ -2395,10 +2378,9 @@ kbd {
     }
 
     if (isFriends) {
-      counter.textContent = `${state.friends.length} ${state.friends.length === 1 ? 'amigo' : 'amigos'}`;
       renderSteamFriends();
       renderChat();
-      if (cloud.ready) refreshFriendsPresence(true);
+      if (isCloudAuthenticated()) refreshFriendsPresence(true);
       return;
     }
 
@@ -2800,7 +2782,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     renderAccount();
     renderSteamFriends();
     render();
-    if (cloud.client && cloud.user) {
+    if (isCloudAuthenticated()) {
       try {
         await cloud.client
           .from(CONFIG.TABLE)
@@ -3090,7 +3072,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && cloud.client && cloud.user) {
+    if (!document.hidden && isCloudAuthenticated()) {
       if (state.presence !== 'offline') pushNow();
       refreshFriendsPresence(true);
     }
@@ -3129,7 +3111,6 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     state.selectedFriend = null;
     state.nowPlaying = '';
     state.presence = 'online';
-    state.localAccount = null;
     state.customCovers = {};
     state.customBacks = {};
     state.profilePhoto = '';
@@ -3141,7 +3122,6 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
       localStorage.removeItem(LS_REC);
       localStorage.removeItem(LS_FRIENDS);
       localStorage.removeItem(LS_CHATS);
-      localStorage.removeItem(LS_LOCAL_ACC);
       localStorage.removeItem(LS_PRESENCE);
       localStorage.removeItem(LS_PHOTO);
       localStorage.removeItem(LS_LANG);
@@ -3151,7 +3131,6 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     } catch {}
     applySettings();
     applyLanguage();
-    setSync('local');
     renderAccount();
     renderChat();
     render();
@@ -3167,6 +3146,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   romFile.addEventListener('change', onRomChosen);
 
   $('#btn-account').addEventListener('click', openAccount);
+  $('#btn-friends-login').addEventListener('click', openAccount);
   $('#acc-close').addEventListener('click', closeAccount);
   accountEl.addEventListener('click', (e) => { if (e.target === accountEl) closeAccount(); });
   $('#mode-login').addEventListener('click', () => setAuthMode('login'));
@@ -3184,7 +3164,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
   });
   $('#btn-steam-refresh').addEventListener('click', async () => {
     setSteamMsg('');
-    if (cloud.ready && cloud.user) await pushNow();
+    if (isCloudAuthenticated()) await pushNow();
     await refreshFriendsPresence(false);
   });
   $('#steam-filter').addEventListener('input', (e) => {
@@ -3200,7 +3180,7 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
     sendChatMessage($('#chat-input').value);
   });
   $('#btn-chat-sync').addEventListener('click', async () => {
-    if (cloud.ready && cloud.user) {
+    if (isCloudAuthenticated()) {
       await pullMessagesFromCloud(state.selectedFriend || null);
       setSteamMsg('Mensagens atualizadas.', 'ok');
     }
@@ -3293,19 +3273,12 @@ p{margin:0;color:#9a8bb3;max-width:480px;line-height:1.5;font-size:.92rem}
       if (state.profilePhoto) localStorage.setItem(LS_PHOTO, state.profilePhoto);
       else localStorage.removeItem(LS_PHOTO);
     } catch {}
-    if (state.localAccount && state.localAccount.active) {
-      state.localAccount.nick = nick;
-      state.localAccount.label = nick || state.localAccount.email || 'Jogador Local';
-      save(LS_LOCAL_ACC, state.localAccount);
-    } else if (!cloud.user && nick) {
-      activateLocalSession('login', nick, '');
-    }
-    if (cloud.client && cloud.user && nick) {
+    if (isCloudAuthenticated() && nick) {
       try { await cloud.client.auth.updateUser({ data: { nickname: nick } }); } catch {}
     }
     renderAccount();
     renderSteamFriends();
-    if (cloud.client && cloud.user) {
+    if (isCloudAuthenticated()) {
       await pushNow();
     }
     closePhotoModal();
