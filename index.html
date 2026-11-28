@@ -365,6 +365,10 @@ body.no-anim .cover-face img { transition: none; }
   position: relative; width: 38px; height: 38px; border-radius: 9px; flex: none;
   display: grid; place-items: center; font-weight: 800; font-size: .92rem;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--accent-2);
+  overflow: visible;
+}
+.steam-friend-av img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 8px; display: block;
 }
 .steam-friend-av .steam-state-dot { width: 11px; height: 11px; right: -2px; bottom: -2px; }
 .steam-friend-text { min-width: 0; flex: 1; }
@@ -1046,7 +1050,7 @@ kbd {
         const key = norm(tag);
         if (tag && !seen.has(key)) {
           seen.add(key);
-          out.push({ tag, userId: '', playing: '', presence: 'offline', updatedAt: '', addedAt: new Date().toISOString() });
+          out.push({ tag, userId: '', playing: '', presence: 'offline', updatedAt: '', avatarUrl: '', addedAt: new Date().toISOString() });
         }
       } else if (item && typeof item === 'object' && typeof item.tag === 'string') {
         const tag = item.tag.trim().slice(0, 64);
@@ -1063,6 +1067,7 @@ kbd {
             playing,
             presence: pres,
             updatedAt,
+            avatarUrl: typeof (item.avatarUrl || item.avatar_url) === 'string' ? (item.avatarUrl || item.avatar_url) : '',
             addedAt: item.addedAt || new Date().toISOString()
           });
         }
@@ -1505,10 +1510,19 @@ kbd {
       return;
     }
     try {
-      const { data, error } = await cloud.client
+      let res = await cloud.client
         .from(CONFIG.TABLE)
-        .select('user_id, nome_exibicao, jogo_atual, atualizado_em')
+        .select('user_id, nome_exibicao, avatar_url, jogo_atual, atualizado_em')
         .limit(200);
+
+      if (res.error && /avatar_url/i.test(res.error.message || '')) {
+        res = await cloud.client
+          .from(CONFIG.TABLE)
+          .select('user_id, nome_exibicao, jogo_atual, atualizado_em')
+          .limit(200);
+      }
+
+      const { data, error } = res;
       if (error) {
         if (!silent) setSteamMsg('Não foi possível atualizar status da nuvem: ' + error.message, 'err');
         renderSteamFriends();
@@ -1528,13 +1542,21 @@ kbd {
           const activeNow = isRecentlyActive(match.atualizado_em);
           const resolved = activeNow ? resolveGameLabel(match.jogo_atual || '') : '';
           const nextPres = f.presence === 'offline' ? 'offline' : (activeNow ? 'online' : 'offline');
-          if (resolved !== (f.playing || '') || nextPres !== f.presence || (match.user_id && match.user_id !== f.userId) || (match.atualizado_em || '') !== (f.updatedAt || '')) {
+          const nextAvatar = typeof match.avatar_url === 'string' ? match.avatar_url : (f.avatarUrl || '');
+          if (
+            resolved !== (f.playing || '') ||
+            nextPres !== f.presence ||
+            (match.user_id && match.user_id !== f.userId) ||
+            (match.atualizado_em || '') !== (f.updatedAt || '') ||
+            nextAvatar !== (f.avatarUrl || '')
+          ) {
             changed = true;
             return Object.assign({}, f, {
               userId: match.user_id || f.userId || '',
               playing: resolved,
               presence: nextPres,
-              updatedAt: match.atualizado_em || ''
+              updatedAt: match.atualizado_em || '',
+              avatarUrl: nextAvatar
             });
           }
         } else {
@@ -1550,7 +1572,7 @@ kbd {
       renderSteamFriends();
       renderChat();
       await pullMessagesFromCloud(state.selectedFriend || null);
-      if (!silent) setSteamMsg('Status e mensagens sincronizados com a nuvem.', 'ok');
+      if (!silent) setSteamMsg('Status, fotos e mensagens sincronizados com a nuvem.', 'ok');
     } catch {
       renderSteamFriends();
     }
@@ -1586,13 +1608,18 @@ kbd {
     if ($('#cfg-lang')) $('#cfg-lang').value = state.lang;
   }
 
-  function paintAvatarContainer(el, name, letter) {
+  function paintAvatarContainer(el, name, letter, customPhoto) {
     if (!el) return;
     el.innerHTML = '';
-    if (state.profilePhoto) {
+    const src = customPhoto !== undefined ? customPhoto : state.profilePhoto;
+    if (src) {
       const im = document.createElement('img');
-      im.src = state.profilePhoto;
+      im.src = src;
       im.alt = name;
+      im.onerror = () => {
+        im.remove();
+        el.textContent = letter;
+      };
       el.appendChild(im);
     } else {
       el.textContent = letter;
@@ -1608,6 +1635,11 @@ kbd {
     const topLet = $('#top-avatar-letter');
     if (state.profilePhoto) {
       topImg.src = state.profilePhoto;
+      topImg.onerror = () => {
+        topImg.removeAttribute('src');
+        topImg.hidden = true;
+        topLet.hidden = false;
+      };
       topImg.hidden = false;
       topLet.hidden = true;
     } else {
@@ -1615,8 +1647,8 @@ kbd {
       topImg.hidden = true;
       topLet.hidden = false;
     }
-    paintAvatarContainer($('#steam-my-avatar'), name, letter);
-    paintAvatarContainer($('#acc-avatar'), name, letter);
+    paintAvatarContainer($('#steam-my-avatar'), name, letter, state.profilePhoto);
+    paintAvatarContainer($('#acc-avatar'), name, letter, state.profilePhoto);
   }
 
   function renderPhotoModalPreview(src, nick) {
@@ -1656,7 +1688,7 @@ kbd {
       reader.onload = () => {
         const img = new Image();
         img.onload = () => {
-          const max = 200;
+          const max = 160;
           let w = img.width, h = img.height;
           if (w > h) { if (w > max) { h = Math.round((h * max) / w); w = max; } }
           else { if (h > max) { w = Math.round((w * max) / h); h = max; } }
@@ -1665,7 +1697,7 @@ kbd {
           canvas.height = h;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, w, h);
-          resolve(canvas.toDataURL('image/jpeg', 0.82));
+          resolve(canvas.toDataURL('image/jpeg', 0.75));
         };
         img.onerror = reject;
         img.src = reader.result;
@@ -1731,9 +1763,12 @@ kbd {
       if (!state.current) {
         state.nowPlaying = '';
       }
-      if (data.avatar_url && !state.profilePhoto) {
-        state.profilePhoto = String(data.avatar_url);
-        try { localStorage.setItem(LS_PHOTO, state.profilePhoto); } catch {}
+      if (typeof data.avatar_url === 'string') {
+        state.profilePhoto = data.avatar_url;
+        try {
+          if (state.profilePhoto) localStorage.setItem(LS_PHOTO, state.profilePhoto);
+          else localStorage.removeItem(LS_PHOTO);
+        } catch {}
       }
       persistLocal();
       render();
@@ -1753,13 +1788,21 @@ kbd {
     clearTimeout(cloud.timer);
     setSync('syncing');
     const effectiveGame = state.presence === 'offline' ? null : (state.nowPlaying || null);
+    const friendsToSave = state.friends.map(f => ({
+      tag: f.tag,
+      userId: f.userId || '',
+      playing: f.playing || '',
+      presence: f.presence || 'offline',
+      updatedAt: f.updatedAt || '',
+      addedAt: f.addedAt || ''
+    }));
     const payload = {
       user_id: cloud.user.id,
       nome_exibicao: getMyDisplayName(),
       avatar_url: state.profilePhoto || null,
       favoritos: state.favs,
       recentes: state.recents,
-      amigos: state.friends,
+      amigos: friendsToSave,
       jogo_atual: effectiveGame,
       atualizado_em: new Date().toISOString()
     };
@@ -1919,6 +1962,7 @@ kbd {
       playing: '',
       presence: 'offline',
       updatedAt: '',
+      avatarUrl: '',
       addedAt: new Date().toISOString()
     });
     state.selectedFriend = tag;
@@ -2077,7 +2121,19 @@ kbd {
 
         const av = document.createElement('div');
         av.className = 'steam-friend-av';
-        av.textContent = (f.tag[0] || '?').toUpperCase();
+        const fLetter = (f.tag[0] || '?').toUpperCase();
+        if (f.avatarUrl) {
+          const avImg = document.createElement('img');
+          avImg.src = f.avatarUrl;
+          avImg.alt = f.tag;
+          avImg.onerror = () => {
+            avImg.remove();
+            av.prepend(document.createTextNode(fLetter));
+          };
+          av.appendChild(avImg);
+        } else {
+          av.textContent = fLetter;
+        }
         const dot = document.createElement('span');
         dot.className = `steam-state-dot ${gMeta.key}`;
         av.appendChild(dot);
